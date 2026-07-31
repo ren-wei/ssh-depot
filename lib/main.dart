@@ -1,28 +1,47 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import 'feature/components/app_scope.dart';
+import 'feature/cubits/app_controller.dart';
 import 'feature/pages/nginx_page.dart';
+import 'feature/pages/overview_page.dart';
 import 'feature/pages/packages_page.dart';
 import 'feature/pages/services_page.dart';
 import 'feature/pages/settings_page.dart';
-import 'feature/pages/overview_page.dart';
 
 void main() {
   runApp(const SshDepotApp());
 }
 
-class SshDepotApp extends StatelessWidget {
+class SshDepotApp extends StatefulWidget {
   const SshDepotApp({super.key});
 
   @override
+  State<SshDepotApp> createState() => _SshDepotAppState();
+}
+
+class _SshDepotAppState extends State<SshDepotApp> {
+  late final AppController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AppController();
+    _controller.load();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return MaterialApp.router(
-      title: 'ssh depot',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff1f7a5f)),
-        useMaterial3: true,
+    return AppScope(
+      controller: _controller,
+      child: MaterialApp.router(
+        title: 'ssh depot',
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff1f7a5f)),
+          useMaterial3: true,
+        ),
+        routerConfig: _router,
       ),
-      routerConfig: _router,
     );
   }
 }

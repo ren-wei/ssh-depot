@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import 'app_scope.dart';
+
 class AppShell extends StatelessWidget {
   const AppShell({required this.selectedPath, required this.child, super.key});
 
@@ -10,38 +12,58 @@ class AppShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final selectedIndex = _selectedIndexForPath(selectedPath);
+    final controller = AppScope.of(context);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('ssh depot'),
-        actions: [
-          TextButton.icon(
-            onPressed: () {},
-            icon: const Icon(Icons.link_off),
-            label: const Text('未连接'),
-          ),
-          const SizedBox(width: 12),
-        ],
-      ),
-      body: Row(
-        children: [
-          NavigationRail(
-            selectedIndex: selectedIndex,
-            onDestinationSelected: (index) => context.go(_items[index].path),
-            labelType: NavigationRailLabelType.all,
-            destinations: [
-              for (final item in _items)
-                NavigationRailDestination(
-                  icon: Icon(item.icon),
-                  label: Text(item.label),
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final target = controller.target;
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(target == null ? 'ssh depot' : 'ssh depot · ${target.address}'),
+            actions: [
+              if (controller.isRunning)
+                TextButton.icon(
+                  onPressed: controller.cancelRunning,
+                  icon: const Icon(Icons.stop_circle_outlined),
+                  label: const Text('取消'),
                 ),
+              TextButton.icon(
+                onPressed: target == null ? null : controller.disconnect,
+                icon: Icon(target == null ? Icons.link_off : Icons.link),
+                label: Text(target == null ? '未连接' : '断开'),
+              ),
+              const SizedBox(width: 12),
             ],
           ),
-          const VerticalDivider(width: 1),
-          Expanded(child: child),
-        ],
-      ),
-      bottomNavigationBar: const _TerminalStatusBar(),
+          body: Column(
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    NavigationRail(
+                      selectedIndex: selectedIndex,
+                      onDestinationSelected: (index) => context.go(_items[index].path),
+                      labelType: NavigationRailLabelType.all,
+                      destinations: [
+                        for (final item in _items)
+                          NavigationRailDestination(
+                            icon: Icon(item.icon),
+                            label: Text(item.label),
+                          ),
+                      ],
+                    ),
+                    const VerticalDivider(width: 1),
+                    Expanded(child: child),
+                  ],
+                ),
+              ),
+              if (controller.terminalExpanded) const _TerminalPanel(),
+            ],
+          ),
+          bottomNavigationBar: const _TerminalStatusBar(),
+        );
+      },
     );
   }
 }
@@ -76,19 +98,57 @@ class _TerminalStatusBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final controller = AppScope.of(context);
     return Container(
       height: 44,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          Icon(Icons.terminal, size: 18),
-          SizedBox(width: 8),
-          Expanded(child: Text('空闲')),
-          Icon(Icons.keyboard_arrow_up),
+          const Icon(Icons.terminal, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              controller.statusLine,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          IconButton(
+            onPressed: controller.toggleTerminal,
+            icon: Icon(controller.terminalExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up),
+            tooltip: controller.terminalExpanded ? '收起终端' : '展开终端',
+          ),
         ],
+      ),
+    );
+  }
+}
+
+class _TerminalPanel extends StatelessWidget {
+  const _TerminalPanel();
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = AppScope.of(context);
+    final text = controller.terminalLines.join();
+    return Container(
+      height: 300,
+      width: double.infinity,
+      color: const Color(0xff111111),
+      padding: const EdgeInsets.all(12),
+      child: SingleChildScrollView(
+        reverse: true,
+        child: SelectableText(
+          text.isEmpty ? '暂无输出' : text,
+          style: const TextStyle(
+            color: Color(0xffeeeeee),
+            fontFamily: 'monospace',
+            fontSize: 13,
+          ),
+        ),
       ),
     );
   }

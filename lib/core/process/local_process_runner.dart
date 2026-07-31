@@ -5,6 +5,8 @@ import 'dart:io';
 import 'process_output_chunk.dart';
 
 class LocalProcessRunner {
+  Process? _activeProcess;
+
   Future<int> start({
     required String executable,
     required List<String> arguments,
@@ -12,6 +14,7 @@ class LocalProcessRunner {
     Duration? timeout,
   }) async {
     final process = await Process.start(executable, arguments);
+    _activeProcess = process;
     Timer? timer;
 
     if (timeout != null) {
@@ -29,7 +32,18 @@ class LocalProcessRunner {
     final exitCode = await process.exitCode;
     await Future.wait([stdoutDone, stderrDone]);
     timer?.cancel();
+    if (identical(_activeProcess, process)) {
+      _activeProcess = null;
+    }
 
     return exitCode;
+  }
+
+  bool killActive() {
+    final process = _activeProcess;
+    if (process == null) {
+      return false;
+    }
+    return process.kill();
   }
 }

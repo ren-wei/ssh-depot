@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../../../components/app_shell.dart';
+import '../../../components/app_scope.dart';
 
 class ServicesView extends StatelessWidget {
   const ServicesView({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final controller = AppScope.of(context);
     const services = ['nginx', 'mysql', 'redis', 'docker'];
 
     return AppShell(
@@ -26,22 +28,30 @@ class ServicesView extends StatelessWidget {
                   spacing: 8,
                   children: [
                     IconButton(
-                      onPressed: null,
+                      onPressed: !controller.isConnected || controller.isRunning
+                          ? null
+                          : () => controller.serviceAction(service, 'start'),
                       icon: const Icon(Icons.play_arrow),
                       tooltip: '启动',
                     ),
                     IconButton(
-                      onPressed: null,
+                      onPressed: !controller.isConnected || controller.isRunning
+                          ? null
+                          : () => controller.serviceAction(service, 'stop'),
                       icon: const Icon(Icons.stop),
                       tooltip: '停止',
                     ),
                     IconButton(
-                      onPressed: null,
+                      onPressed: !controller.isConnected || controller.isRunning
+                          ? null
+                          : () => controller.serviceAction(service, 'restart'),
                       icon: const Icon(Icons.restart_alt),
                       tooltip: '重启',
                     ),
                     IconButton(
-                      onPressed: null,
+                      onPressed: !controller.isConnected || controller.isRunning
+                          ? null
+                          : () => controller.serviceAction(service, 'logs'),
                       icon: const Icon(Icons.article_outlined),
                       tooltip: '日志',
                     ),
