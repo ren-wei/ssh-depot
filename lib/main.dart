@@ -38,6 +38,14 @@ class _SshDepotAppState extends State<SshDepotApp> {
         title: 'ssh depot',
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff1f7a5f)),
+          fontFamilyFallback: const [
+            'Noto Sans CJK SC',
+            'Noto Sans CJK',
+            'WenQuanYi Micro Hei',
+            'Microsoft YaHei',
+            'PingFang SC',
+            'Arial Unicode MS',
+          ],
           useMaterial3: true,
         ),
         routerConfig: _router,
@@ -49,6 +57,7 @@ class _SshDepotAppState extends State<SshDepotApp> {
 final _router = GoRouter(
   routes: [
     GoRoute(path: '/', builder: (context, state) => const OverviewPage()),
+    GoRoute(path: '/overview', builder: (context, state) => const OverviewPage()),
     GoRoute(path: '/packages', builder: (context, state) => const PackagesPage()),
     GoRoute(path: '/services', builder: (context, state) => const ServicesPage()),
     GoRoute(path: '/nginx', builder: (context, state) => const NginxPage()),

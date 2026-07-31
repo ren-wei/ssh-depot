@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../parts/connection/views/connection_view.dart';
 import 'app_scope.dart';
 
 class AppShell extends StatelessWidget {
@@ -18,9 +19,12 @@ class AppShell extends StatelessWidget {
       animation: controller,
       builder: (context, _) {
         final target = controller.target;
+        if (target == null) {
+          return const ConnectionView();
+        }
         return Scaffold(
           appBar: AppBar(
-            title: Text(target == null ? 'ssh depot' : 'ssh depot · ${target.address}'),
+            title: Text('ssh depot · ${target.address}'),
             actions: [
               if (controller.isRunning)
                 TextButton.icon(
@@ -29,9 +33,9 @@ class AppShell extends StatelessWidget {
                   label: const Text('取消'),
                 ),
               TextButton.icon(
-                onPressed: target == null ? null : controller.disconnect,
-                icon: Icon(target == null ? Icons.link_off : Icons.link),
-                label: Text(target == null ? '未连接' : '断开'),
+                onPressed: controller.disconnect,
+                icon: const Icon(Icons.link),
+                label: const Text('断开'),
               ),
               const SizedBox(width: 12),
             ],
@@ -86,7 +90,7 @@ class _ShellItem {
 }
 
 const _items = [
-  _ShellItem(path: '/', label: '概览', icon: Icons.dashboard_outlined),
+  _ShellItem(path: '/overview', label: '概览', icon: Icons.dashboard_outlined),
   _ShellItem(path: '/packages', label: '软件包', icon: Icons.inventory_2_outlined),
   _ShellItem(path: '/services', label: '服务', icon: Icons.toggle_on_outlined),
   _ShellItem(path: '/nginx', label: 'Nginx', icon: Icons.account_tree_outlined),
@@ -146,6 +150,12 @@ class _TerminalPanel extends StatelessWidget {
           style: const TextStyle(
             color: Color(0xffeeeeee),
             fontFamily: 'monospace',
+            fontFamilyFallback: [
+              'Noto Sans Mono CJK SC',
+              'Noto Sans CJK SC',
+              'Noto Sans CJK',
+              'WenQuanYi Micro Hei',
+            ],
             fontSize: 13,
           ),
         ),
