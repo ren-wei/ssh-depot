@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+flutter_version="$(tr -d '[:space:]' < "${project_root}/.flutter-version")"
+flutter_sha256="$(tr -d '[:space:]' < "${project_root}/.flutter-sha256")"
+
+flutter_dir="${FLUTTER_INSTALL_DIR:-/usr/local/src/flutter}"
+install_parent="$(dirname "${flutter_dir}")"
+archive="/tmp/flutter_linux_${flutter_version}-stable.tar.xz"
+archive_url="https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${flutter_version}-stable.tar.xz"
+
+required_packages=(
+  curl
+  git
+  unzip
+  xz-utils
+  zip
+  libglu1-mesa
+  clang
+  cmake
+  ninja-build
+  pkg-config
+  libgtk-3-dev
+)
+
+ensure_linux() {
+  if [[ "$(uname -s)" != "Linux" ]]; then
+    echo "This installer currently supports Linux only." >&2
+    exit 1
+  fi
+}
+
+install_system_packages() {
+  if ! command -v apt-get >/dev/null 2>&1; then
+    echo "apt-get not found. Install these packages manually:" >&2
+    printf '  %s\n' "${required_packages[*]}" >&2
+    exit 1
+  fi
+
+  sudo apt-get update
+  sudo apt-get install -y "${required_packages[@]}"
+}
+
+install_flutter() {
+  if [[ -x "${flutter_dir}/bin/flutter" ]]; then
+    current_version="$("${flutter_dir}/bin/flutter" --version --no-version-check | sed -n 's/^Flutter \([^ ]*\).*/\1/p' | head -n 1)"
+    if [[ "${current_version}" == "${flutter_version}" ]]; then
+      echo "Flutter ${flutter_version} already installed at ${flutter_dir}."
+      return
+    fi
+
+    cat >&2 <<EOF
+Flutter is already installed at ${flutter_dir}, but its version is ${current_version:-unknown}.
+Expected version: ${flutter_version}
+
+Set FLUTTER_INSTALL_DIR to another directory, or move the existing SDK before rerunning.
+EOF
+    exit 1
+  fi
+
+  curl -fL "${archive_url}" -o "${archive}"
+  echo "${flutter_sha256}  ${archive}" | sha256sum -c -
+
+  tmp_extract_dir="$(mktemp -d)"
+  tar -xf "${archive}" -C "${tmp_extract_dir}"
+
+  if [[ -e "${flutter_dir}" ]]; then
+    echo "${flutter_dir} already exists but does not contain a runnable Flutter SDK." >&2
+    rm -rf "${tmp_extract_dir}"
+    exit 1
+  fi
+
+  sudo mkdir -p "${install_parent}"
+  sudo mv "${tmp_extract_dir}/flutter" "${flutter_dir}"
+  rmdir "${tmp_extract_dir}"
+}
+
+install_flutter_link() {
+  sudo ln -sfn "${flutter_dir}/bin/flutter" /usr/local/bin/flutter
+  sudo ln -sfn "${flutter_dir}/bin/dart" /usr/local/bin/dart
+}
+
+verify_flutter() {
+  flutter --version --no-version-check
+  flutter doctor -v
+}
+
+ensure_linux
+install_system_packages
+install_flutter
+install_flutter_link
+verify_flutter
+
+cat <<EOF
+
+Development environment is ready.
+
+Flutter is installed at:
+  ${flutter_dir}
+
+The flutter command is linked at:
+  /usr/local/bin/flutter
+
+The dart command is linked at:
+  /usr/local/bin/dart
+
+Then from the project root:
+  flutter pub get
+  flutter analyze
+  flutter test
+EOF
