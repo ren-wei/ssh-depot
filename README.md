@@ -4,7 +4,7 @@
 
 项目文件结构规范见：[docs/project-structure.zh-CN.md](docs/project-structure.zh-CN.md)
 
-本项目固定 Flutter 版本见 [`.flutter-version`](.flutter-version)。Linux 开发环境可执行 `scripts/install-dev-env-linux` 一键安装依赖，并将对应版本 Flutter 安装到 `/usr/local/src/flutter`。
+本项目固定 Flutter 版本见 [`.flutter-version`](.flutter-version)。开发环境可执行 `scripts/install.sh` 自动识别 Linux / macOS 并安装依赖，将对应版本 Flutter 安装到 `/usr/local/src/flutter`。
 
 ---
 ## 1. 产品概述

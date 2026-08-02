@@ -41,7 +41,7 @@
 
 推荐协作规则：
 
-- Linux 开发者可执行 `scripts/install-dev-env-linux` 一键安装 apt 依赖，并将 Flutter SDK 安装到 `/usr/local/src/flutter`。
+- 开发者可执行 `scripts/install.sh` 自动识别 Linux / macOS 并安装依赖，将 Flutter SDK 安装到 `/usr/local/src/flutter`。
 - 需要系统级依赖时，由开发者在自己的终端执行脚本并输入 sudo 密码。
 - Flutter SDK 安装到系统目录，不放入项目仓库；脚本会创建 `/usr/local/bin/flutter` 和 `/usr/local/bin/dart` 软链。
 - `pubspec.lock` 需要提交，保证依赖解析结果在不同开发环境一致。
