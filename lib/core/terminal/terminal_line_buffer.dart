@@ -3,6 +3,10 @@ class TerminalLineBuffer {
 
   String get lastVisibleLine => _lastVisibleLine;
 
+  void clear() {
+    _lastVisibleLine = '';
+  }
+
   void append(String text) {
     final lines = text.split(RegExp(r'\r?\n'));
     for (final line in lines) {

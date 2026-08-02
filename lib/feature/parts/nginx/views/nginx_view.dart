@@ -90,6 +90,7 @@ class _NginxViewState extends State<NginxView> {
                     Expanded(flex: 3, child: Text('网站', style: depotMutedText(context))),
                     Expanded(flex: 2, child: Text('状态', style: depotMutedText(context))),
                     Expanded(flex: 2, child: Text('类型', style: depotMutedText(context))),
+                    Expanded(flex: 2, child: Text('证书', style: depotMutedText(context))),
                     Expanded(flex: 4, child: Text('路径', style: depotMutedText(context))),
                     Expanded(flex: 4, child: Text('操作', textAlign: TextAlign.right, style: depotMutedText(context))),
                   ],
@@ -109,6 +110,7 @@ class _NginxViewState extends State<NginxView> {
                     site: site,
                     disabled: disabled,
                     onConfig: () => _openConfigDialog(controller, site),
+                    onCertificate: () => _openCertificateDialog(controller, site),
                     onEnable: () => controller.enableNginxSite(site.name),
                     onDisable: () => controller.disableNginxSite(site.name),
                     onDelete: () => _confirmDeleteSite(controller, site),
@@ -126,6 +128,13 @@ class _NginxViewState extends State<NginxView> {
     await showDialog<void>(
       context: context,
       builder: (context) => _SiteConfigDialog(controller: controller, site: site),
+    );
+  }
+
+  Future<void> _openCertificateDialog(AppController controller, NginxSite site) async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => _CertificateDialog(controller: controller, site: site),
     );
   }
 
@@ -182,6 +191,7 @@ class _SiteRow extends StatelessWidget {
     required this.site,
     required this.disabled,
     required this.onConfig,
+    required this.onCertificate,
     required this.onEnable,
     required this.onDisable,
     required this.onDelete,
@@ -190,6 +200,7 @@ class _SiteRow extends StatelessWidget {
   final NginxSite site;
   final bool disabled;
   final VoidCallback onConfig;
+  final VoidCallback onCertificate;
   final VoidCallback onEnable;
   final VoidCallback onDisable;
   final VoidCallback onDelete;
@@ -197,6 +208,15 @@ class _SiteRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final statusColor = site.enabled ? depotAccent : depotYellow;
+    final certificate = site.certificate;
+    final certificateStatus = certificate?.status ?? CertificateStatus.missing;
+    final certificateColor = switch (certificateStatus) {
+      CertificateStatus.valid => depotAccent,
+      CertificateStatus.expiringSoon => depotYellow,
+      CertificateStatus.expired => depotRed,
+      CertificateStatus.missing => depotMuted,
+      CertificateStatus.unknown => depotYellow,
+    };
     return DepotRow(
       child: Row(
         children: [
@@ -235,6 +255,13 @@ class _SiteRow extends StatelessWidget {
             ),
           ),
           Expanded(
+            flex: 2,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: _InlineStatus(label: certificate?.statusLabel ?? '未配置', color: certificateColor),
+            ),
+          ),
+          Expanded(
             flex: 4,
             child: Text(
               site.availablePath,
@@ -250,6 +277,8 @@ class _SiteRow extends StatelessWidget {
               alignment: WrapAlignment.end,
               children: [
                 _MiniAction(label: '配置', icon: Icons.code, disabled: disabled, onPressed: onConfig),
+                _MiniAction(
+                    label: '证书', icon: Icons.verified_user_outlined, disabled: disabled, onPressed: onCertificate),
                 if (site.enabled)
                   _MiniAction(label: '禁用', icon: Icons.link_off, disabled: disabled, onPressed: onDisable)
                 else ...[
@@ -290,6 +319,287 @@ class _InlineStatus extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+class _CertificateDialog extends StatefulWidget {
+  const _CertificateDialog({
+    required this.controller,
+    required this.site,
+  });
+
+  final AppController controller;
+  final NginxSite site;
+
+  @override
+  State<_CertificateDialog> createState() => _CertificateDialogState();
+}
+
+class _CertificateDialogState extends State<_CertificateDialog> {
+  final _domainController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _webrootController = TextEditingController(text: '/var/www/html');
+  final _outputScrollController = ScrollController();
+  bool _useWebroot = false;
+  bool _running = false;
+  String _output = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _domainController.text = widget.site.certificate?.domain ??
+        (widget.site.serverNames.isNotEmpty ? widget.site.serverNames.first : widget.site.name);
+  }
+
+  @override
+  void dispose() {
+    _domainController.dispose();
+    _emailController.dispose();
+    _webrootController.dispose();
+    _outputScrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final certificate = widget.site.certificate;
+    final status = certificate?.status ?? CertificateStatus.missing;
+    final statusColor = switch (status) {
+      CertificateStatus.valid => depotAccent,
+      CertificateStatus.expiringSoon => depotYellow,
+      CertificateStatus.expired => depotRed,
+      CertificateStatus.missing => depotMuted,
+      CertificateStatus.unknown => depotYellow,
+    };
+
+    return AlertDialog(
+      backgroundColor: depotPanel,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(22),
+        side: const BorderSide(color: depotLine),
+      ),
+      title: Text(
+        '${widget.site.name} 证书',
+        style: Theme.of(context).textTheme.titleLarge?.copyWith(color: depotText, fontWeight: FontWeight.w900),
+      ),
+      content: SizedBox(
+        width: 660,
+        height: 540,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            DepotRow(
+              child: Row(
+                children: [
+                  _InlineStatus(label: certificate?.statusLabel ?? '未配置', color: statusColor),
+                  const SizedBox(width: 18),
+                  Expanded(
+                    child: Text(
+                      certificate == null
+                          ? '未发现 /etc/letsencrypt/live/${widget.site.name}/fullchain.pem'
+                          : '${_dateLabel(certificate.expiresAt)} · ${certificate.issuer ?? '签发者未知'}',
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: depotMuted),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _domainController,
+                    style: const TextStyle(color: depotText, fontWeight: FontWeight.w700),
+                    decoration: depotInputDecoration('域名', hint: widget.site.name, icon: Icons.public),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _emailController,
+                    style: const TextStyle(color: depotText, fontWeight: FontWeight.w700),
+                    decoration: depotInputDecoration('邮箱', hint: 'admin@example.com', icon: Icons.mail_outline),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                FilterChip(
+                  selected: !_useWebroot,
+                  onSelected: (_) => setState(() => _useWebroot = false),
+                  label: const Text('Nginx 自动配置'),
+                  selectedColor: depotAccent,
+                  backgroundColor: depotPanelAlt.withValues(alpha: 0.42),
+                  side: const BorderSide(color: depotLineDim),
+                  labelStyle: TextStyle(
+                    color: !_useWebroot ? const Color(0xff06311f) : depotText,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                FilterChip(
+                  selected: _useWebroot,
+                  onSelected: (_) => setState(() => _useWebroot = true),
+                  label: const Text('Webroot'),
+                  selectedColor: depotAccent,
+                  backgroundColor: depotPanelAlt.withValues(alpha: 0.42),
+                  side: const BorderSide(color: depotLineDim),
+                  labelStyle: TextStyle(
+                    color: _useWebroot ? const Color(0xff06311f) : depotText,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+            if (_useWebroot) ...[
+              const SizedBox(height: 12),
+              TextField(
+                controller: _webrootController,
+                style: const TextStyle(color: depotText, fontWeight: FontWeight.w700),
+                decoration: depotInputDecoration('Webroot 路径', hint: '/var/www/html', icon: Icons.folder_outlined),
+              ),
+            ],
+            const SizedBox(height: 14),
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: depotTerminal,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: depotLineDim),
+                ),
+                child: DepotScrollbar(
+                  controller: _outputScrollController,
+                  child: SingleChildScrollView(
+                    controller: _outputScrollController,
+                    child: SelectableText(
+                      _output.isEmpty ? '证书操作输出会显示在这里。' : _output,
+                      style: TextStyle(
+                        color: _output.isEmpty ? depotMuted : const Color(0xffd6eadf),
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+      actions: [
+        OutlinedButton(
+          onPressed: _running ? null : () => Navigator.of(context).pop(),
+          style: depotOutlinedButtonStyle(),
+          child: const Text('关闭'),
+        ),
+        OutlinedButton.icon(
+          onPressed: _running ? null : _details,
+          icon: const Icon(Icons.info_outline, size: 16),
+          label: const Text('查看详情'),
+          style: depotOutlinedButtonStyle(),
+        ),
+        if (certificate != null) ...[
+          OutlinedButton.icon(
+            onPressed: _running ? null : _renew,
+            icon: const Icon(Icons.refresh, size: 16),
+            label: const Text('续期'),
+            style: depotOutlinedButtonStyle(),
+          ),
+          OutlinedButton.icon(
+            onPressed: _running ? null : _delete,
+            icon: const Icon(Icons.delete_outline, size: 16),
+            label: const Text('删除'),
+            style: depotOutlinedButtonStyle(),
+          ),
+        ],
+        FilledButton.icon(
+          onPressed: _running ? null : _request,
+          icon: _running
+              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(Icons.verified_user_outlined, size: 16),
+          label: const Text('申请证书'),
+          style: depotFilledButtonStyle(),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _run(Future<RemoteCommandResult?> Function() action) async {
+    setState(() {
+      _running = true;
+      _output = '';
+    });
+    final result = await action();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _running = false;
+      _output =
+          result?.output.trim().isEmpty == true ? (result!.succeeded ? '操作成功' : '操作失败') : (result?.output ?? '操作失败');
+    });
+  }
+
+  Future<void> _details() {
+    return _run(() => widget.controller.certificateDetails(_domainController.text.trim()));
+  }
+
+  Future<void> _request() {
+    return _run(
+      () => widget.controller.requestCertificate(
+        domain: _domainController.text.trim(),
+        email: _emailController.text.trim(),
+        useWebroot: _useWebroot,
+        webroot: _webrootController.text.trim(),
+      ),
+    );
+  }
+
+  Future<void> _renew() {
+    return _run(() => widget.controller.renewCertificate(_domainController.text.trim()));
+  }
+
+  Future<void> _delete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: depotPanel,
+        surfaceTintColor: Colors.transparent,
+        title: const Text('删除证书', style: TextStyle(color: depotText, fontWeight: FontWeight.w900)),
+        content: Text('确认删除 ${_domainController.text.trim()} 的证书？',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: depotMuted)),
+        actions: [
+          OutlinedButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              style: depotOutlinedButtonStyle(),
+              child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: depotFilledButtonStyle(),
+              child: const Text('确认')),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await _run(() => widget.controller.deleteCertificate(_domainController.text.trim()));
+    }
+  }
+
+  String _dateLabel(DateTime? value) {
+    if (value == null) {
+      return '到期时间未知';
+    }
+    String two(int number) => number.toString().padLeft(2, '0');
+    return '到期 ${value.year}-${two(value.month)}-${two(value.day)}';
   }
 }
 

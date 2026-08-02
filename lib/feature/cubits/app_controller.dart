@@ -70,7 +70,7 @@ class AppController extends ChangeNotifier {
 
   Future<void> load() async {
     servers = await _serversStore.load();
-    managedServices = await _servicePreferencesStore.load();
+    managedServices = const ['nginx'];
     customNginxTemplates = await _nginxTemplatesStore.load();
     notifyListeners();
   }
@@ -203,8 +203,9 @@ class AppController extends ChangeNotifier {
     ];
     await _serversStore.save(servers);
     if (target?.host == server.host && target?.user == server.user) {
-      _closeMaster(target!);
+      _closeMaster(target!, appendOutput: false);
       target = null;
+      _clearConnectionRuntimeCache();
       statusLine = '已断开';
     }
     notifyListeners();
@@ -213,10 +214,11 @@ class AppController extends ChangeNotifier {
   void disconnect() {
     final currentTarget = target;
     target = null;
+    _clearConnectionRuntimeCache();
     statusLine = '已断开';
     notifyListeners();
     if (currentTarget != null) {
-      _closeMaster(currentTarget);
+      _closeMaster(currentTarget, appendOutput: false);
     }
   }
 
@@ -236,12 +238,21 @@ class AppController extends ChangeNotifier {
       _setStatus('请输入 Host');
       return;
     }
+    final previousTarget = target;
+    if (previousTarget != null) {
+      _closeMaster(previousTarget, appendOutput: false);
+    }
+    target = null;
+    _clearConnectionRuntimeCache();
     final nextTarget = SshTarget(host: cleanHost, controlPath: _controlPathFor(cleanHost));
     final exitCode = await _openMasterAndVerify(nextTarget);
     if (exitCode == 0) {
+      managedServices = await _servicePreferencesStore.load(nextTarget.address);
       target = nextTarget;
       await saveServer(_profileForSuccessfulConnect(cleanHost));
       _setStatus('✓ root@$cleanHost 已连接');
+    } else {
+      managedServices = const ['nginx'];
     }
   }
 
@@ -417,7 +428,27 @@ class AppController extends ChangeNotifier {
       command: 'echo "__sites_available__"; '
           'find /etc/nginx/sites-available -maxdepth 1 -type f -printf "%f\\n" 2>/dev/null || true; '
           'echo "__sites_enabled__"; '
-          'find /etc/nginx/sites-enabled -maxdepth 1 \\( -type f -o -type l \\) -printf "%f\\n" 2>/dev/null || true',
+          'find /etc/nginx/sites-enabled -maxdepth 1 \\( -type f -o -type l \\) -printf "%f\\n" 2>/dev/null || true; '
+          'echo "__site_domains__"; '
+          'for sitefile in /etc/nginx/sites-available/*; do '
+          '  [ -f "\$sitefile" ] || continue; '
+          '  sitename=\$(basename "\$sitefile"); '
+          '  domains=\$(sed -n "s/^[[:space:]]*server_name[[:space:]]\\+\\([^;]*\\);.*/\\1/p" "\$sitefile" '
+          '    | tr "\\n" " " | tr -s " " | sed "s/^ //;s/ \$//" || true); '
+          '  printf "%s|%s\\n" "\$sitename" "\$domains"; '
+          'done; '
+          'echo "__certificates__"; '
+          'for certdir in /etc/letsencrypt/live/*; do '
+          '  [ -d "\$certdir" ] || continue; '
+          '  name=\$(basename "\$certdir"); fullchain="\$certdir/fullchain.pem"; '
+          '  [ -f "\$fullchain" ] || continue; '
+          '  end_date=\$(openssl x509 -in "\$fullchain" -noout -enddate 2>/dev/null | cut -d= -f2- || true); '
+          '  end_epoch=\$(date -d "\$end_date" +%s 2>/dev/null || echo 0); '
+          '  issuer=\$(openssl x509 -in "\$fullchain" -noout -issuer 2>/dev/null | sed "s/^issuer=//" || true); '
+          '  names=\$(openssl x509 -in "\$fullchain" -noout -ext subjectAltName 2>/dev/null '
+          '    | grep -o "DNS:[^, ]*" | sed "s/^DNS://" | tr "\\n" " " | tr -s " " | sed "s/^ //;s/ \$//" || true); '
+          '  printf "%s|%s|%s|%s|%s\\n" "\$name" "\$end_epoch" "\$issuer" "\$fullchain" "\$names"; '
+          'done',
       timeout: const Duration(seconds: 20),
     );
     if (result == null || !result.succeeded) {
@@ -598,6 +629,76 @@ class AppController extends ChangeNotifier {
     await refreshNginxSites();
   }
 
+  Future<RemoteCommandResult?> certificateDetails(String site) {
+    if (!_isSafeSiteName(site)) {
+      _setStatus('无效证书名称');
+      return Future.value();
+    }
+    return _runCaptureRemote(
+      summary: '查看证书 $site',
+      command: 'fullchain=/etc/letsencrypt/live/${shellQuote(site)}/fullchain.pem; '
+          'if [ ! -f "\$fullchain" ]; then echo "未找到证书: \$fullchain"; exit 1; fi; '
+          'openssl x509 -in "\$fullchain" -noout -subject -issuer -dates -serial',
+      timeout: const Duration(seconds: 12),
+    );
+  }
+
+  Future<RemoteCommandResult?> requestCertificate({
+    required String domain,
+    required String email,
+    required bool useWebroot,
+    required String webroot,
+  }) async {
+    final cleanDomain = domain.trim();
+    if (!_isSafeSiteName(cleanDomain)) {
+      _setStatus('无效域名');
+      return null;
+    }
+    if (email.trim().isEmpty) {
+      _setStatus('请输入邮箱');
+      return null;
+    }
+    final command = useWebroot
+        ? 'certbot certonly --webroot -w ${shellQuote(webroot.trim())} -d ${shellQuote(cleanDomain)} '
+            '--non-interactive --agree-tos -m ${shellQuote(email.trim())}'
+        : 'certbot --nginx -d ${shellQuote(cleanDomain)} --non-interactive --agree-tos -m ${shellQuote(email.trim())}';
+    final result = await _runCaptureRemote(
+      summary: '申请证书 $cleanDomain',
+      command: command,
+      timeout: const Duration(minutes: 5),
+    );
+    await refreshNginxSites();
+    return result;
+  }
+
+  Future<RemoteCommandResult?> renewCertificate(String site) async {
+    if (!_isSafeSiteName(site)) {
+      _setStatus('无效证书名称');
+      return null;
+    }
+    final result = await _runCaptureRemote(
+      summary: '续期证书 $site',
+      command: 'certbot renew --cert-name ${shellQuote(site)}',
+      timeout: const Duration(minutes: 5),
+    );
+    await refreshNginxSites();
+    return result;
+  }
+
+  Future<RemoteCommandResult?> deleteCertificate(String site) async {
+    if (!_isSafeSiteName(site)) {
+      _setStatus('无效证书名称');
+      return null;
+    }
+    final result = await _runCaptureRemote(
+      summary: '删除证书 $site',
+      command: 'certbot delete --cert-name ${shellQuote(site)} --non-interactive',
+      timeout: const Duration(minutes: 2),
+    );
+    await refreshNginxSites();
+    return result;
+  }
+
   Future<void> createNginxSite({
     required String siteName,
     required String config,
@@ -753,8 +854,13 @@ class AppController extends ChangeNotifier {
     return command;
   }
 
-  void _closeMaster(SshTarget target) {
-    _sshExecutor.closeMaster(target: target, onOutput: _appendOutput).catchError((Object _) => 255);
+  void _closeMaster(SshTarget target, {bool appendOutput = true}) {
+    _sshExecutor
+        .closeMaster(
+          target: target,
+          onOutput: appendOutput ? _appendOutput : (_) {},
+        )
+        .catchError((Object _) => 255);
   }
 
   String _controlPathFor(String host) {
@@ -818,12 +924,30 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _saveManagedServices() async {
+    final currentTarget = target;
+    if (currentTarget == null) {
+      notifyListeners();
+      return;
+    }
     try {
-      await _servicePreferencesStore.save(managedServices);
+      await _servicePreferencesStore.save(currentTarget.address, managedServices);
     } catch (error) {
       _setStatus('✗ 保存服务列表失败: $error');
     }
     notifyListeners();
+  }
+
+  void _clearConnectionRuntimeCache() {
+    _terminalLines.clear();
+    _lineBuffer.clear();
+    _recentOperations.clear();
+    nginxSites = const [];
+    serviceSnapshots = const {};
+    overviewSnapshot = null;
+    serviceLogsService = null;
+    serviceLogsOutput = '';
+    overviewLoading = false;
+    terminalExpanded = false;
   }
 
   OverviewSnapshot? _filterOverviewServices(OverviewSnapshot? snapshot) {
@@ -930,6 +1054,8 @@ class AppController extends ChangeNotifier {
   List<NginxSite> _parseNginxSites(String output) {
     final available = <String>{};
     final enabled = <String>{};
+    final siteDomains = <String, List<String>>{};
+    final certificates = <NginxCertificateInfo>[];
     var section = '';
 
     for (final rawLine in const LineSplitter().convert(output)) {
@@ -937,17 +1063,34 @@ class AppController extends ChangeNotifier {
       if (line.isEmpty) {
         continue;
       }
-      if (line == '__sites_available__' || line == '__sites_enabled__') {
+      if (line == '__sites_available__' ||
+          line == '__sites_enabled__' ||
+          line == '__site_domains__' ||
+          line == '__certificates__') {
         section = line;
         continue;
       }
-      if (!_isSafeSiteName(line)) {
-        continue;
-      }
       if (section == '__sites_available__') {
+        if (!_isSafeSiteName(line)) {
+          continue;
+        }
         available.add(line);
       } else if (section == '__sites_enabled__') {
+        if (!_isSafeSiteName(line)) {
+          continue;
+        }
         enabled.add(line);
+      } else if (section == '__site_domains__') {
+        final parts = line.split('|');
+        if (parts.isEmpty || !_isSafeSiteName(parts.first)) {
+          continue;
+        }
+        siteDomains[parts.first] = _parseDomainList(parts.length > 1 ? parts[1] : '');
+      } else if (section == '__certificates__') {
+        final certificate = _parseCertificateLine(line);
+        if (certificate != null) {
+          certificates.add(certificate);
+        }
       }
     }
 
@@ -959,8 +1102,74 @@ class AppController extends ChangeNotifier {
           enabled: enabled.contains(name),
           availablePath: '/etc/nginx/sites-available/$name',
           configType: _inferNginxSiteType(name),
+          serverNames: siteDomains[name] ?? const [],
+          certificate:
+              _matchCertificate(siteName: name, serverNames: siteDomains[name] ?? const [], certificates: certificates),
         ),
     ];
+  }
+
+  NginxCertificateInfo? _parseCertificateLine(String line) {
+    final parts = line.split('|');
+    if (parts.length < 4 || !_isSafeSiteName(parts[0])) {
+      return null;
+    }
+    final epoch = int.tryParse(parts[1]);
+    final expiresAt = epoch == null || epoch <= 0 ? null : DateTime.fromMillisecondsSinceEpoch(epoch * 1000);
+    final names = _parseDomainList(parts.length > 4 ? parts[4] : '');
+    return NginxCertificateInfo(
+      domain: parts[0],
+      expiresAt: expiresAt,
+      issuer: parts[2].isEmpty ? null : parts[2],
+      fullchainPath: parts[3],
+      names: names,
+      status: _certificateStatus(expiresAt),
+    );
+  }
+
+  List<String> _parseDomainList(String value) {
+    return value
+        .split(RegExp(r'\s+'))
+        .map((domain) => domain.trim())
+        .where((domain) =>
+            domain.isNotEmpty && domain != '_' && _isSafeSiteName(domain.replaceFirst(RegExp(r'^\*\.'), 'wildcard.')))
+        .toSet()
+        .toList();
+  }
+
+  NginxCertificateInfo? _matchCertificate({
+    required String siteName,
+    required List<String> serverNames,
+    required List<NginxCertificateInfo> certificates,
+  }) {
+    final candidates = {
+      siteName,
+      ...serverNames,
+    };
+    for (final certificate in certificates) {
+      final certificateNames = {
+        certificate.domain,
+        ...certificate.names,
+      };
+      if (candidates.any(certificateNames.contains)) {
+        return certificate;
+      }
+    }
+    return null;
+  }
+
+  CertificateStatus _certificateStatus(DateTime? expiresAt) {
+    if (expiresAt == null) {
+      return CertificateStatus.unknown;
+    }
+    final now = DateTime.now();
+    if (expiresAt.isBefore(now)) {
+      return CertificateStatus.expired;
+    }
+    if (expiresAt.difference(now).inDays <= 30) {
+      return CertificateStatus.expiringSoon;
+    }
+    return CertificateStatus.valid;
   }
 
   NginxSiteType _inferNginxSiteType(String name) {

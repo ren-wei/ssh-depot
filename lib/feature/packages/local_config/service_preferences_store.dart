@@ -9,7 +9,7 @@ class ServicePreferencesStore {
 
   final ConfigPaths _paths;
 
-  Future<List<String>> load() async {
+  Future<List<String>> load(String target) async {
     final file = File(_paths.preferencesFile);
     if (!await file.exists()) {
       return const ['nginx'];
@@ -20,33 +20,82 @@ class ServicePreferencesStore {
       return const ['nginx'];
     }
 
+    final servicesByTarget = parsed['servicesByTarget'];
+    if (servicesByTarget is YamlMap) {
+      final services = servicesByTarget[target];
+      return _parseServices(services);
+    }
+
     final services = parsed['services'];
+    return _parseServices(services);
+  }
+
+  Future<void> save(String target, List<String> services) async {
+    final file = File(_paths.preferencesFile);
+    await file.parent.create(recursive: true);
+    final existing = await _loadAll();
+    existing[target] = _normalizedOrDefault(services);
+    await file.writeAsString(_encodeServicesByTarget(existing));
+  }
+
+  Future<Map<String, List<String>>> _loadAll() async {
+    final file = File(_paths.preferencesFile);
+    if (!await file.exists()) {
+      return {};
+    }
+
+    final parsed = loadYaml(await file.readAsString());
+    if (parsed is! YamlMap) {
+      return {};
+    }
+
+    final servicesByTarget = parsed['servicesByTarget'];
+    if (servicesByTarget is YamlMap) {
+      return {
+        for (final entry in servicesByTarget.entries) entry.key.toString(): _parseServices(entry.value),
+      };
+    }
+
+    final legacyServices = _parseServices(parsed['services']);
+    return legacyServices.isEmpty ? {} : {'default': legacyServices};
+  }
+
+  List<String> _parseServices(Object? services) {
     if (services is! YamlList) {
       return const ['nginx'];
     }
 
-    final values = [
-      for (final service in services) service.toString().trim(),
-    ].where((service) => service.isNotEmpty).toSet().toList();
+    final values = _normalizeServices([
+      for (final service in services) service.toString(),
+    ]);
 
     return values.isEmpty ? const ['nginx'] : values;
   }
 
-  Future<void> save(List<String> services) async {
-    final file = File(_paths.preferencesFile);
-    await file.parent.create(recursive: true);
-    await file.writeAsString(_encodeServices(services));
+  List<String> _normalizeServices(List<String> services) {
+    return [
+      for (final service in services) service.trim(),
+    ].where((service) => service.isNotEmpty).toSet().toList();
   }
 
-  String _encodeServices(List<String> services) {
-    final buffer = StringBuffer('services:\n');
-    for (final service in services) {
-      buffer.writeln('  - ${_yamlString(service)}');
+  List<String> _normalizedOrDefault(List<String> services) {
+    final values = _normalizeServices(services);
+    return values.isEmpty ? const ['nginx'] : values;
+  }
+
+  String _encodeServicesByTarget(Map<String, List<String>> servicesByTarget) {
+    final buffer = StringBuffer('servicesByTarget:\n');
+    final targets = servicesByTarget.keys.toList()..sort();
+    for (final target in targets) {
+      buffer.writeln('  ${_yamlString(target)}:');
+      for (final service in servicesByTarget[target] ?? const <String>[]) {
+        buffer.writeln('    - ${_yamlString(service)}');
+      }
     }
     return buffer.toString();
   }
 
   String _yamlString(String value) {
-    return '"${value.replaceAll(r'\', r'\\').replaceAll('"', r'\"')}"';
+    return '"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"';
   }
 }
