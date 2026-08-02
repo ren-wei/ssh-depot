@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'feature/components/app_scope.dart';
+import 'feature/components/app_shell.dart';
 import 'feature/cubits/app_controller.dart';
 import 'feature/pages/nginx_page.dart';
 import 'feature/pages/overview_page.dart';
@@ -56,11 +57,52 @@ class _SshDepotAppState extends State<SshDepotApp> {
 
 final _router = GoRouter(
   routes: [
-    GoRoute(path: '/', builder: (context, state) => const OverviewPage()),
-    GoRoute(path: '/overview', builder: (context, state) => const OverviewPage()),
-    GoRoute(path: '/packages', builder: (context, state) => const PackagesPage()),
-    GoRoute(path: '/services', builder: (context, state) => const ServicesPage()),
-    GoRoute(path: '/nginx', builder: (context, state) => const NginxPage()),
-    GoRoute(path: '/settings', builder: (context, state) => const SettingsPage()),
+    GoRoute(path: '/', redirect: (context, state) => '/overview'),
+    ShellRoute(
+      builder: (context, state, child) {
+        return AppShell(selectedPath: state.uri.path, child: child);
+      },
+      routes: [
+        GoRoute(
+          path: '/overview',
+          pageBuilder: (context, state) => _contentPage(state, const OverviewPage()),
+        ),
+        GoRoute(
+          path: '/packages',
+          pageBuilder: (context, state) => _contentPage(state, const PackagesPage()),
+        ),
+        GoRoute(
+          path: '/services',
+          pageBuilder: (context, state) => _contentPage(state, const ServicesPage()),
+        ),
+        GoRoute(
+          path: '/nginx',
+          pageBuilder: (context, state) => _contentPage(state, const NginxPage()),
+        ),
+        GoRoute(
+          path: '/settings',
+          pageBuilder: (context, state) => _contentPage(state, const SettingsPage()),
+        ),
+      ],
+    ),
   ],
 );
+
+CustomTransitionPage<void> _contentPage(GoRouterState state, Widget child) {
+  return CustomTransitionPage<void>(
+    key: state.pageKey,
+    child: child,
+    transitionDuration: const Duration(milliseconds: 180),
+    reverseTransitionDuration: const Duration(milliseconds: 160),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      final offset = Tween<Offset>(
+        begin: const Offset(0.03, 0),
+        end: Offset.zero,
+      ).chain(CurveTween(curve: Curves.easeOutCubic)).animate(animation);
+      return FadeTransition(
+        opacity: animation,
+        child: SlideTransition(position: offset, child: child),
+      );
+    },
+  );
+}

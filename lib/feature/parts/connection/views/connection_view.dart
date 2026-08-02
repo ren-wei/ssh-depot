@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../classes/server_profile.dart';
@@ -656,10 +657,24 @@ class _TerminalOutputBoxState extends State<_TerminalOutputBox> {
                 const Icon(Icons.terminal, color: _muted, size: 16),
                 const SizedBox(width: 8),
                 Text(
-                  '所有输出',
+                  '终端',
                   style: _captionStyle(
                     context,
                   ).copyWith(color: _text, fontWeight: FontWeight.w800),
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: widget.text.trim().isEmpty ? null : () => _copyForAi(context),
+                  icon: const Icon(Icons.copy, size: 14),
+                  label: const Text('Copy for ai'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: _text,
+                    disabledForegroundColor: _muted.withValues(alpha: 0.5),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 28),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+                  ),
                 ),
               ],
             ),
@@ -691,6 +706,39 @@ class _TerminalOutputBoxState extends State<_TerminalOutputBox> {
         ],
       ),
     );
+  }
+
+  Future<void> _copyForAi(BuildContext context) async {
+    final block = _lastCommandBlock(widget.text);
+    final content = '''
+请分析下面这次 ssh-depot 终端命令和输出，定位问题原因并给出修复建议：
+
+```text
+$block
+```
+''';
+    await Clipboard.setData(ClipboardData(text: content.trim()));
+    if (!context.mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已复制最后一条命令和输出')),
+    );
+  }
+
+  String _lastCommandBlock(String text) {
+    final trimmed = text.trimRight();
+    if (trimmed.isEmpty) {
+      return '暂无输出';
+    }
+    final markerIndex = trimmed.lastIndexOf('\n\$ ');
+    if (markerIndex >= 0) {
+      return trimmed.substring(markerIndex + 1).trimRight();
+    }
+    if (trimmed.startsWith(r'$ ')) {
+      return trimmed;
+    }
+    return trimmed;
   }
 }
 

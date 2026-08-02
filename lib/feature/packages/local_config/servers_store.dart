@@ -10,8 +10,6 @@ class ServersStore {
 
   final ConfigPaths _paths;
 
-  String get serversFile => _paths.serversFile;
-
   Future<List<ServerProfile>> load() async {
     final file = File(_paths.serversFile);
     if (!await file.exists()) {

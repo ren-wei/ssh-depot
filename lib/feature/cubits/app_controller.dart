@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../../core/process/local_process_runner.dart';
 import '../../core/process/process_output_chunk.dart';
 import '../../core/terminal/terminal_line_buffer.dart';
+import '../classes/overview_snapshot.dart';
 import '../classes/server_profile.dart';
 import '../packages/command_runner/operation_queue.dart';
 import '../packages/local_config/config_paths.dart';
@@ -13,6 +14,7 @@ import '../packages/local_config/servers_store.dart';
 import '../packages/nginx_template/built_in_templates.dart';
 import '../packages/nginx_template/template_manifest.dart';
 import '../packages/nginx_template/template_renderer.dart';
+import '../packages/overview/overview_parser.dart';
 import '../packages/ssh/ssh_command.dart';
 import '../packages/ssh/ssh_executor.dart';
 import '../packages/ssh/ssh_target.dart';
@@ -32,14 +34,18 @@ class AppController extends ChangeNotifier {
   final OperationQueue _queue;
   final TerminalLineBuffer _lineBuffer = TerminalLineBuffer();
   final List<String> _terminalLines = [];
+  final List<OperationRecord> _recentOperations = [];
 
   List<ServerProfile> servers = [];
   SshTarget? target;
+  OverviewSnapshot? overviewSnapshot;
   bool isRunning = false;
+  bool overviewLoading = false;
   bool terminalExpanded = false;
   String statusLine = '空闲';
 
   List<String> get terminalLines => List.unmodifiable(_terminalLines);
+  List<OperationRecord> get recentOperations => List.unmodifiable(_recentOperations);
   bool get isConnected => target != null;
   List<TemplateManifest> get nginxTemplates => builtInNginxTemplates;
 
@@ -60,13 +66,11 @@ class AppController extends ChangeNotifier {
     try {
       await _serversStore.save(nextServers);
     } catch (error) {
-      _setStatus('保存服务器失败');
-      _appendTerminal('\n✗ 保存服务器配置失败: $error\n');
+      _setStatus('✗ 保存服务器失败: $error');
       return;
     }
     servers = nextServers;
     _setStatus('✓ 已保存服务器 ${server.target}');
-    _appendTerminal('\n✓ 已保存服务器配置: ${_serversStore.serversFile}\n');
     notifyListeners();
   }
 
@@ -77,6 +81,7 @@ class AppController extends ChangeNotifier {
     ];
     await _serversStore.save(servers);
     if (target?.host == server.host && target?.user == server.user) {
+      _closeMaster(target!);
       target = null;
       statusLine = '已断开';
     }
@@ -84,9 +89,13 @@ class AppController extends ChangeNotifier {
   }
 
   void disconnect() {
+    final currentTarget = target;
     target = null;
     statusLine = '已断开';
     notifyListeners();
+    if (currentTarget != null) {
+      _closeMaster(currentTarget);
+    }
   }
 
   Future<bool> testConnection(String host) async {
@@ -105,12 +114,20 @@ class AppController extends ChangeNotifier {
       _setStatus('请输入 Host');
       return;
     }
-    final exitCode = await _runConnectionTest(cleanHost);
+    final nextTarget = SshTarget(host: cleanHost, controlPath: _controlPathFor(cleanHost));
+    final exitCode = await _openMasterAndVerify(nextTarget);
     if (exitCode == 0) {
-      target = SshTarget(host: cleanHost);
-      await saveServer(ServerProfile(name: cleanHost, host: cleanHost));
+      target = nextTarget;
+      await saveServer(_profileForSuccessfulConnect(cleanHost));
       _setStatus('✓ root@$cleanHost 已连接');
     }
+  }
+
+  ServerProfile _profileForSuccessfulConnect(String host) {
+    return servers.firstWhere(
+      (server) => server.host == host && server.user == 'root',
+      orElse: () => ServerProfile(name: host, host: host),
+    );
   }
 
   Future<int> _runConnectionTest(String cleanHost) {
@@ -121,6 +138,44 @@ class AppController extends ChangeNotifier {
       command: 'echo __myctl_ok__',
       timeout: const Duration(seconds: 12),
     );
+  }
+
+  Future<int> _openMasterAndVerify(SshTarget nextTarget) {
+    return _queue.run(() async {
+      isRunning = true;
+      _setStatus('建立 SSH 连接');
+
+      int exitCode;
+      try {
+        exitCode = await _sshExecutor.openMaster(
+          target: nextTarget,
+          timeout: const Duration(seconds: 12),
+          onOutput: _appendOutput,
+        );
+        if (exitCode == 0) {
+          _appendTerminal('\n\$ ${_displaySshCommand('echo __myctl_ok__')}\n');
+          exitCode = await _sshExecutor.run(
+            target: nextTarget,
+            command: const SshCommand(
+              summary: '验证 SSH 连接',
+              command: 'echo __myctl_ok__',
+              timeout: Duration(seconds: 12),
+            ),
+            onOutput: _appendOutput,
+          );
+        }
+      } catch (error) {
+        exitCode = -1;
+        _appendTerminal('$error\n');
+      }
+
+      if (exitCode != 0) {
+        _closeMaster(nextTarget);
+      }
+      isRunning = false;
+      _setStatus(exitCode == 0 ? '✓ 建立 SSH 连接成功' : '✗ 建立 SSH 连接失败');
+      return exitCode;
+    });
   }
 
   Future<void> installPackage(String packageName) {
@@ -167,6 +222,35 @@ class AppController extends ChangeNotifier {
       return Future.value();
     }
     return runRemote(summary: '$service $action', command: command);
+  }
+
+  Future<void> refreshOverview() async {
+    final currentTarget = target;
+    if (currentTarget == null) {
+      _setStatus('请先连接服务器');
+      return;
+    }
+    overviewLoading = true;
+    notifyListeners();
+
+    final output = StringBuffer();
+    final exitCode = await _runOnTarget(
+      target: currentTarget,
+      summary: '刷新概览',
+      command: _overviewCommand,
+      timeout: const Duration(seconds: 20),
+      onOutput: (chunk) {
+        if (!chunk.isStdErr) {
+          output.write(chunk.text);
+        }
+      },
+    );
+
+    if (exitCode == 0) {
+      overviewSnapshot = const OverviewParser().parse(output.toString());
+    }
+    overviewLoading = false;
+    notifyListeners();
   }
 
   Future<void> listNginxSites() {
@@ -284,10 +368,11 @@ class AppController extends ChangeNotifier {
     required String summary,
     required String command,
     Duration? timeout,
+    void Function(ProcessOutputChunk chunk)? onOutput,
   }) {
     return _queue.run(() async {
       isRunning = true;
-      _appendTerminal('\n\$ ${_displaySshCommand(target, command)}\n');
+      _appendTerminal('\n\$ ${_displaySshCommand(command)}\n');
       _setStatus(summary);
 
       int exitCode;
@@ -295,7 +380,10 @@ class AppController extends ChangeNotifier {
         exitCode = await _sshExecutor.run(
           target: target,
           command: SshCommand(summary: summary, command: command, timeout: timeout),
-          onOutput: _appendOutput,
+          onOutput: (chunk) {
+            _appendOutput(chunk);
+            onOutput?.call(chunk);
+          },
         );
       } catch (error) {
         exitCode = -1;
@@ -303,21 +391,51 @@ class AppController extends ChangeNotifier {
       }
 
       isRunning = false;
+      _recordOperation(summary: summary, command: command, exitCode: exitCode);
       _setStatus(exitCode == 0 ? '✓ $summary 成功' : '✗ $summary 失败');
       return exitCode;
     });
   }
 
-  String _displaySshCommand(SshTarget target, String command) {
-    return [
-      'ssh',
-      '-o',
-      'BatchMode=yes',
-      '-o',
-      'ConnectTimeout=10',
-      shellQuote(target.address),
-      shellQuote(command),
-    ].join(' ');
+  void _recordOperation({
+    required String summary,
+    required String command,
+    required int exitCode,
+  }) {
+    _recentOperations.insert(
+      0,
+      OperationRecord(
+        timestamp: DateTime.now(),
+        summary: summary,
+        command: command,
+        exitCode: exitCode,
+      ),
+    );
+    if (_recentOperations.length > 10) {
+      _recentOperations.removeRange(10, _recentOperations.length);
+    }
+  }
+
+  String _displaySshCommand(String command) {
+    return command;
+  }
+
+  void _closeMaster(SshTarget target) {
+    _sshExecutor.closeMaster(target: target, onOutput: _appendOutput).catchError((Object _) => 255);
+  }
+
+  String _controlPathFor(String host) {
+    final user = 'root';
+    final identity = '$user@$host';
+    return '/tmp/ssh-depot-${_stableHash(identity)}.sock';
+  }
+
+  String _stableHash(String value) {
+    var hash = 0;
+    for (final codeUnit in value.codeUnits) {
+      hash = (hash * 31 + codeUnit) & 0x7fffffff;
+    }
+    return hash.toRadixString(16);
   }
 
   void _appendOutput(ProcessOutputChunk chunk) {
@@ -385,6 +503,45 @@ ${enableLogs ? '''
 }
 ''';
 }
+
+const _overviewCommand = r'''
+set -e
+if command -v lsb_release >/dev/null 2>&1; then
+  distribution=$(lsb_release -ds 2>/dev/null)
+else
+  . /etc/os-release
+  distribution=${PRETTY_NAME:-unknown}
+fi
+kernel=$(uname -r 2>/dev/null || true)
+uptime_text=$(uptime -p 2>/dev/null || uptime 2>/dev/null || true)
+read _ cpu_user cpu_nice cpu_system cpu_idle cpu_iowait cpu_irq cpu_softirq cpu_steal _ < /proc/stat
+cpu_idle_1=$((cpu_idle + cpu_iowait))
+cpu_total_1=$((cpu_user + cpu_nice + cpu_system + cpu_idle + cpu_iowait + cpu_irq + cpu_softirq + cpu_steal))
+sleep 0.2
+read _ cpu_user cpu_nice cpu_system cpu_idle cpu_iowait cpu_irq cpu_softirq cpu_steal _ < /proc/stat
+cpu_idle_2=$((cpu_idle + cpu_iowait))
+cpu_total_2=$((cpu_user + cpu_nice + cpu_system + cpu_idle + cpu_iowait + cpu_irq + cpu_softirq + cpu_steal))
+cpu_total_delta=$((cpu_total_2 - cpu_total_1))
+cpu_idle_delta=$((cpu_idle_2 - cpu_idle_1))
+if [ "$cpu_total_delta" -gt 0 ]; then
+  cpu=$((100 * (cpu_total_delta - cpu_idle_delta) / cpu_total_delta))
+else
+  cpu=0
+fi
+memory=$(free -m | awk '/^Mem:/ { if ($2 > 0) printf "%.0f", (($2 - $7) * 100 / $2); }')
+disk=$(df -P / | awk 'NR==2 { gsub(/%/, "", $5); print $5; }')
+printf "distribution=%s\n" "$distribution"
+printf "kernel=%s\n" "$kernel"
+printf "uptime=%s\n" "$uptime_text"
+printf "cpu=%s\n" "$cpu"
+printf "memory=%s\n" "${memory:-0}"
+printf "disk=%s\n" "${disk:-0}"
+for svc in nginx mysql redis docker; do
+  status=$(systemctl is-active "$svc" 2>/dev/null || true)
+  enabled=$(systemctl is-enabled "$svc" 2>/dev/null || true)
+  printf "service=%s;status=%s;enabled=%s\n" "$svc" "${status:-unknown}" "${enabled:-unknown}"
+done
+''';
 
 const _reverseProxyTemplate = '''
 server {
