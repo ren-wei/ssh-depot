@@ -6,10 +6,13 @@ import 'package:flutter/foundation.dart';
 import '../../core/process/local_process_runner.dart';
 import '../../core/process/process_output_chunk.dart';
 import '../../core/terminal/terminal_line_buffer.dart';
+import '../classes/nginx_site.dart';
+import '../classes/nginx_template_definition.dart';
 import '../classes/overview_snapshot.dart';
 import '../classes/server_profile.dart';
 import '../packages/command_runner/operation_queue.dart';
 import '../packages/local_config/config_paths.dart';
+import '../packages/local_config/nginx_templates_store.dart';
 import '../packages/local_config/service_preferences_store.dart';
 import '../packages/local_config/servers_store.dart';
 import '../packages/nginx_template/built_in_templates.dart';
@@ -29,11 +32,13 @@ class AppController extends ChangeNotifier {
     final paths = ConfigPaths(homeDirectory: _resolveHomeDirectory());
     _serversStore = ServersStore(paths: paths);
     _servicePreferencesStore = ServicePreferencesStore(paths: paths);
+    _nginxTemplatesStore = NginxTemplatesStore(paths: paths);
   }
 
   late final SshExecutor _sshExecutor;
   late final ServersStore _serversStore;
   late final ServicePreferencesStore _servicePreferencesStore;
+  late final NginxTemplatesStore _nginxTemplatesStore;
   final LocalProcessRunner _processRunner;
   final OperationQueue _queue;
   final TerminalLineBuffer _lineBuffer = TerminalLineBuffer();
@@ -42,6 +47,8 @@ class AppController extends ChangeNotifier {
 
   List<ServerProfile> servers = [];
   List<String> managedServices = const ['nginx'];
+  List<NginxSite> nginxSites = const [];
+  List<NginxTemplateDefinition> customNginxTemplates = const [];
   Map<String, ServiceSnapshot> serviceSnapshots = const {};
   SshTarget? target;
   OverviewSnapshot? overviewSnapshot;
@@ -56,10 +63,15 @@ class AppController extends ChangeNotifier {
   List<OperationRecord> get recentOperations => List.unmodifiable(_recentOperations);
   bool get isConnected => target != null;
   List<TemplateManifest> get nginxTemplates => builtInNginxTemplates;
+  List<NginxTemplateDefinition> get websiteTemplates => [
+        ..._builtInWebsiteTemplates,
+        ...customNginxTemplates,
+      ];
 
   Future<void> load() async {
     servers = await _serversStore.load();
     managedServices = await _servicePreferencesStore.load();
+    customNginxTemplates = await _nginxTemplatesStore.load();
     notifyListeners();
   }
 
@@ -399,40 +411,53 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> listNginxSites() {
-    return runRemote(
-      summary: '刷新 Nginx 站点',
-      command: 'set -e; '
-          'echo "[sites-available]"; ls -1 /etc/nginx/sites-available 2>/dev/null || true; '
-          'echo; echo "[sites-enabled]"; ls -1 /etc/nginx/sites-enabled 2>/dev/null || true',
+  Future<void> refreshNginxSites() async {
+    final result = await _runCaptureRemote(
+      summary: '刷新网站列表',
+      command: 'echo "__sites_available__"; '
+          'find /etc/nginx/sites-available -maxdepth 1 -type f -printf "%f\\n" 2>/dev/null || true; '
+          'echo "__sites_enabled__"; '
+          'find /etc/nginx/sites-enabled -maxdepth 1 \\( -type f -o -type l \\) -printf "%f\\n" 2>/dev/null || true',
+      timeout: const Duration(seconds: 20),
     );
+    if (result == null || !result.succeeded) {
+      return;
+    }
+    nginxSites = _parseNginxSites(result.output);
+    notifyListeners();
   }
 
-  Future<void> enableNginxSite(String site) {
+  Future<void> listNginxSites() {
+    return refreshNginxSites();
+  }
+
+  Future<void> enableNginxSite(String site) async {
     if (!_isSafeSiteName(site)) {
       _setStatus('无效站点名');
       return Future.value();
     }
-    return runRemote(
-      summary: '启用站点 $site',
+    await runRemote(
+      summary: '启用网站 $site',
       command: 'ln -sfn /etc/nginx/sites-available/${shellQuote(site)} /etc/nginx/sites-enabled/${shellQuote(site)} && '
           'nginx -t && systemctl reload nginx',
     );
+    await refreshNginxSites();
   }
 
-  Future<void> disableNginxSite(String site) {
+  Future<void> disableNginxSite(String site) async {
     if (!_isSafeSiteName(site)) {
       _setStatus('无效站点名');
       return Future.value();
     }
-    return runRemote(
-      summary: '禁用站点 $site',
+    await runRemote(
+      summary: '禁用网站 $site',
       command: 'rm -f /etc/nginx/sites-enabled/${shellQuote(site)} && nginx -t && systemctl reload nginx',
     );
+    await refreshNginxSites();
   }
 
   Future<void> testNginx() {
-    return runRemote(summary: 'Nginx 语法检查', command: 'nginx -t');
+    return runRemote(summary: '网站语法检查', command: 'nginx -t');
   }
 
   Future<void> reloadNginx() {
@@ -469,10 +494,150 @@ class AppController extends ChangeNotifier {
         'systemctl reload nginx';
 
     return runRemote(
-      summary: '写入 Nginx 站点 $cleanSite',
+      summary: '写入网站配置 $cleanSite',
       command: command,
       timeout: const Duration(minutes: 2),
     );
+  }
+
+  Future<String?> readNginxSiteConfig(String site) async {
+    if (!_isSafeSiteName(site)) {
+      _setStatus('无效站点名');
+      return null;
+    }
+    final targetPrefix = _nginxSiteTargetPrefix(site);
+    final result = await _runCaptureRemote(
+      summary: '读取网站配置 $site',
+      command: '$targetPrefix cat "\$target"',
+      timeout: const Duration(seconds: 12),
+    );
+    if (result == null || !result.succeeded) {
+      return null;
+    }
+    return result.output;
+  }
+
+  Future<RemoteCommandResult?> testNginxSiteConfig({
+    required String siteName,
+    required String config,
+  }) async {
+    final cleanSite = siteName.trim();
+    if (!_isSafeSiteName(cleanSite)) {
+      _setStatus('无效站点名');
+      return null;
+    }
+    if (config.trim().isEmpty) {
+      _setStatus('配置内容不能为空');
+      return null;
+    }
+
+    final encoded = base64.encode(utf8.encode(config));
+    final targetPrefix = _nginxSiteTargetPrefix(cleanSite);
+    final command = 'set -e; '
+        '$targetPrefix '
+        'backup="\$target.myctl.test.\$(date +%Y%m%d%H%M%S)"; '
+        'had_original=0; '
+        'if [ -f "\$target" ]; then had_original=1; cp "\$target" "\$backup"; fi; '
+        'restore() { if [ "\$had_original" = "1" ]; then cp "\$backup" "\$target"; else rm -f "\$target"; fi; rm -f "\$backup"; }; '
+        'printf %s ${shellQuote(encoded)} | base64 -d > "\$target"; '
+        'if nginx -t; then restore; exit 0; else code=\$?; restore; exit "\$code"; fi';
+    return _runCaptureRemote(
+      summary: '检查网站配置 $cleanSite',
+      command: command,
+      timeout: const Duration(minutes: 2),
+    );
+  }
+
+  Future<RemoteCommandResult?> saveNginxSiteConfig({
+    required String siteName,
+    required String config,
+  }) async {
+    final cleanSite = siteName.trim();
+    if (!_isSafeSiteName(cleanSite)) {
+      _setStatus('无效站点名');
+      return null;
+    }
+    if (config.trim().isEmpty) {
+      _setStatus('配置内容不能为空');
+      return null;
+    }
+
+    final encoded = base64.encode(utf8.encode(config));
+    final targetPrefix = _nginxSiteTargetPrefix(cleanSite);
+    final command = 'set -e; '
+        '$targetPrefix '
+        'backup="\$target.myctl.bak.\$(date +%Y%m%d%H%M%S)"; '
+        'if [ -f "\$target" ]; then cp "\$target" "\$backup"; fi; '
+        'printf %s ${shellQuote(encoded)} | base64 -d > "\$target"; '
+        'if ! nginx -t; then '
+        '  if [ -f "\$backup" ]; then cp "\$backup" "\$target"; else rm -f "\$target"; fi; '
+        '  nginx -t || true; '
+        '  exit 1; '
+        'fi; '
+        'systemctl reload nginx';
+    final result = await _runCaptureRemote(
+      summary: '保存网站配置 $cleanSite',
+      command: command,
+      timeout: const Duration(minutes: 2),
+    );
+    await refreshNginxSites();
+    return result;
+  }
+
+  Future<void> deleteNginxSite(String site) async {
+    if (!_isSafeSiteName(site)) {
+      _setStatus('无效站点名');
+      return;
+    }
+    await runRemote(
+      summary: '删除网站 $site',
+      command: 'rm -f /etc/nginx/sites-enabled/${shellQuote(site)} '
+          '/etc/nginx/sites-available/${shellQuote(site)} && nginx -t && systemctl reload nginx',
+      timeout: const Duration(minutes: 2),
+    );
+    await refreshNginxSites();
+  }
+
+  Future<void> createNginxSite({
+    required String siteName,
+    required String config,
+  }) async {
+    final result = await saveNginxSiteConfig(siteName: siteName, config: config);
+    if (result?.succeeded == true) {
+      await refreshNginxSites();
+    }
+  }
+
+  Future<void> saveWebsiteTemplate({
+    required String name,
+    required String type,
+    required String description,
+    required String content,
+  }) async {
+    final cleanName = name.trim();
+    if (cleanName.isEmpty) {
+      _setStatus('请输入模板名称');
+      return;
+    }
+    if (content.trim().isEmpty) {
+      _setStatus('模板内容不能为空');
+      return;
+    }
+    final template = NginxTemplateDefinition(
+      id: 'custom_${_stableHash('$cleanName|${DateTime.now().microsecondsSinceEpoch}')}',
+      name: cleanName,
+      type: type.trim().isEmpty ? '自定义' : type.trim(),
+      description: description.trim().isEmpty ? null : description.trim(),
+      content: content,
+    );
+    try {
+      await _nginxTemplatesStore.save(template);
+      customNginxTemplates = await _nginxTemplatesStore.load();
+      _setStatus('✓ 已保存模板 $cleanName');
+      notifyListeners();
+    } catch (error) {
+      _setStatus('✗ 保存模板失败: $error');
+    }
   }
 
   String renderNginxTemplate(String templateId, Map<String, Object?> variables) {
@@ -495,6 +660,28 @@ class AppController extends ChangeNotifier {
       return;
     }
     await _runOnTarget(target: currentTarget, summary: summary, command: command, timeout: timeout);
+  }
+
+  Future<RemoteCommandResult?> _runCaptureRemote({
+    required String summary,
+    required String command,
+    Duration? timeout,
+  }) async {
+    final currentTarget = target;
+    if (currentTarget == null) {
+      _setStatus('请先连接服务器');
+      return null;
+    }
+
+    final output = StringBuffer();
+    final exitCode = await _runOnTarget(
+      target: currentTarget,
+      summary: summary,
+      command: command,
+      timeout: timeout,
+      onOutput: (chunk) => output.write(chunk.text),
+    );
+    return RemoteCommandResult(exitCode: exitCode, output: output.toString());
   }
 
   void cancelRunning() {
@@ -739,6 +926,62 @@ class AppController extends ChangeNotifier {
       services: services,
     );
   }
+
+  List<NginxSite> _parseNginxSites(String output) {
+    final available = <String>{};
+    final enabled = <String>{};
+    var section = '';
+
+    for (final rawLine in const LineSplitter().convert(output)) {
+      final line = rawLine.trim();
+      if (line.isEmpty) {
+        continue;
+      }
+      if (line == '__sites_available__' || line == '__sites_enabled__') {
+        section = line;
+        continue;
+      }
+      if (!_isSafeSiteName(line)) {
+        continue;
+      }
+      if (section == '__sites_available__') {
+        available.add(line);
+      } else if (section == '__sites_enabled__') {
+        enabled.add(line);
+      }
+    }
+
+    final names = {...available, ...enabled}.toList()..sort();
+    return [
+      for (final name in names)
+        NginxSite(
+          name: name,
+          enabled: enabled.contains(name),
+          availablePath: '/etc/nginx/sites-available/$name',
+          configType: _inferNginxSiteType(name),
+        ),
+    ];
+  }
+
+  NginxSiteType _inferNginxSiteType(String name) {
+    if (name.contains('proxy') || name.contains('api')) {
+      return NginxSiteType.reverseProxy;
+    }
+    return NginxSiteType.custom;
+  }
+
+  String _nginxSiteTargetPrefix(String site) {
+    final enabledPath = '/etc/nginx/sites-enabled/$site';
+    final availablePath = '/etc/nginx/sites-available/$site';
+    return 'enabled=${shellQuote(enabledPath)}; '
+        'available=${shellQuote(availablePath)}; '
+        'if [ -e "\$enabled" ] || [ -L "\$enabled" ]; then '
+        '  resolved=\$(readlink -f "\$enabled" 2>/dev/null || true); '
+        '  if [ -n "\$resolved" ]; then target="\$resolved"; else target="\$enabled"; fi; '
+        'else '
+        '  target="\$available"; '
+        'fi;';
+  }
 }
 
 String _staticSiteTemplate(bool enableLogs) {
@@ -821,3 +1064,50 @@ server {
     }
 }
 ''';
+
+const _builtInWebsiteTemplates = [
+  NginxTemplateDefinition(
+    id: 'static_site',
+    name: '静态网站',
+    type: '静态站点',
+    description: '标准 root + try_files 配置',
+    builtIn: true,
+    content: '''
+server {
+    listen 80;
+    server_name {{domain}};
+    root {{root_path}};
+    index index.html index.htm;
+
+    location / {
+        try_files \$uri \$uri/ =404;
+    }
+
+    access_log /var/log/nginx/{{domain}}_access.log;
+    error_log /var/log/nginx/{{domain}}_error.log;
+}
+''',
+  ),
+  NginxTemplateDefinition(
+    id: 'reverse_proxy',
+    name: '反向代理',
+    type: '反向代理',
+    description: '转发到本机上游服务',
+    builtIn: true,
+    content: '''
+server {
+    listen 80;
+    server_name {{domain}};
+
+    location / {
+        proxy_pass http://{{upstream_host}}:{{upstream_port}};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+''',
+  ),
+];

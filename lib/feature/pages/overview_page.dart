@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../components/app_scope.dart';
 import '../components/app_shell.dart';
+import '../components/depot_scrollbar.dart';
 import '../classes/overview_snapshot.dart';
 
 class OverviewPage extends StatefulWidget {
@@ -12,7 +13,14 @@ class OverviewPage extends StatefulWidget {
 }
 
 class _OverviewPageState extends State<OverviewPage> {
+  final _scrollController = ScrollController();
   bool _requestedInitialRefresh = false;
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   @override
   void didChangeDependencies() {
@@ -36,73 +44,77 @@ class _OverviewPageState extends State<OverviewPage> {
 
     return ColoredBox(
       color: Colors.transparent,
-      child: ListView(
-        padding: EdgeInsets.zero,
-        children: [
-          _HeroPanel(
-            targetLabel: target?.address ?? '未连接',
-            snapshot: snapshot,
-            isRunning: controller.overviewLoading || controller.isRunning,
-            onRefresh: controller.overviewLoading || controller.isRunning ? null : controller.refreshOverview,
-          ),
-          const SizedBox(height: 26),
-          Row(
-            children: [
-              Expanded(
-                child: _MetricCard(
-                  label: 'CPU',
-                  value: _percent(snapshot?.cpuPercent),
-                  source: '/proc/stat',
-                  color: depotAccent,
+      child: DepotScrollbar(
+        controller: _scrollController,
+        child: ListView(
+          controller: _scrollController,
+          padding: EdgeInsets.zero,
+          children: [
+            _HeroPanel(
+              targetLabel: target?.address ?? '未连接',
+              snapshot: snapshot,
+              isRunning: controller.overviewLoading || controller.isRunning,
+              onRefresh: controller.overviewLoading || controller.isRunning ? null : controller.refreshOverview,
+            ),
+            const SizedBox(height: 26),
+            Row(
+              children: [
+                Expanded(
+                  child: _MetricCard(
+                    label: 'CPU',
+                    value: _percent(snapshot?.cpuPercent),
+                    source: '/proc/stat',
+                    color: depotAccent,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 18),
-              Expanded(
-                child: _MetricCard(
-                  label: '内存',
-                  value: _percent(snapshot?.memoryPercent),
-                  source: 'free -m',
-                  color: depotBlue,
+                const SizedBox(width: 18),
+                Expanded(
+                  child: _MetricCard(
+                    label: '内存',
+                    value: _percent(snapshot?.memoryPercent),
+                    source: 'free -m',
+                    color: depotBlue,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 18),
-              Expanded(
-                child: _MetricCard(
-                  label: '磁盘',
-                  value: _percent(snapshot?.diskPercent),
-                  source: 'df -P /',
-                  color: depotYellow,
+                const SizedBox(width: 18),
+                Expanded(
+                  child: _MetricCard(
+                    label: '磁盘',
+                    value: _percent(snapshot?.diskPercent),
+                    source: 'df -P /',
+                    color: depotYellow,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 18),
-              Expanded(
-                child: _MetricCard(
-                  label: '服务数',
-                  value: snapshot == null ? '--' : '${snapshot.activeServiceCount}',
-                  source: 'systemctl is-active',
-                  color: depotRed,
+                const SizedBox(width: 18),
+                Expanded(
+                  child: _MetricCard(
+                    label: '服务数',
+                    value: snapshot == null ? '--' : '${snapshot.activeServiceCount}',
+                    source: 'systemctl is-active',
+                    color: depotRed,
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 26),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                flex: 2,
-                child: _ServiceStatusPanel(
-                  isRunning: controller.isRunning,
-                  managedServices: controller.managedServices,
-                  services: snapshot?.services ?? const [],
-                  onServiceAction: controller.serviceAction,
+              ],
+            ),
+            const SizedBox(height: 26),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: _ServiceStatusPanel(
+                    isRunning: controller.isRunning,
+                    managedServices: controller.managedServices,
+                    services: snapshot?.services ?? const [],
+                    onServiceAction: controller.serviceAction,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 22),
-              Expanded(child: _RecentOpsPanel(operations: controller.recentOperations)),
-            ],
-          ),
-        ],
+                const SizedBox(width: 22),
+                Expanded(child: _RecentOpsPanel(operations: controller.recentOperations)),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

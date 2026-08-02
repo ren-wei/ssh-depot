@@ -4,6 +4,7 @@ import '../../../classes/overview_snapshot.dart';
 import '../../../components/app_scope.dart';
 import '../../../components/app_shell.dart';
 import '../../../components/depot_content.dart';
+import '../../../components/depot_scrollbar.dart';
 import '../../../cubits/app_controller.dart';
 
 class ServicesView extends StatefulWidget {
@@ -151,6 +152,7 @@ class _AddServiceDialog extends StatefulWidget {
 
 class _AddServiceDialogState extends State<_AddServiceDialog> {
   final _queryController = TextEditingController();
+  final _resultsScrollController = ScrollController();
   late Future<List<String>> _servicesFuture;
   String _query = '';
 
@@ -166,6 +168,7 @@ class _AddServiceDialogState extends State<_AddServiceDialog> {
   @override
   void dispose() {
     _queryController.dispose();
+    _resultsScrollController.dispose();
     super.dispose();
   }
 
@@ -216,55 +219,59 @@ class _AddServiceDialogState extends State<_AddServiceDialog> {
                       ),
                     );
                   }
-                  return ListView.separated(
-                    padding: EdgeInsets.zero,
-                    itemCount: filteredServices.length,
-                    separatorBuilder: (context, index) => const SizedBox(height: 8),
-                    itemBuilder: (context, index) {
-                      final service = filteredServices[index];
-                      final added = widget.controller.managedServices.contains(service);
-                      return DepotRow(
-                        height: 54,
-                        child: Row(
-                          children: [
-                            const DepotDot(color: depotBlue, size: 14),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                service,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                      color: depotText,
-                                      fontWeight: FontWeight.w900,
-                                    ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            if (added)
-                              const DepotStatusPill(label: '已添加', color: depotMuted)
-                            else
-                              SizedBox(
-                                width: 76,
-                                child: FilledButton(
-                                  onPressed: () async {
-                                    await widget.controller.addManagedService(service);
-                                    if (context.mounted) {
-                                      Navigator.of(context).pop();
-                                    }
-                                  },
-                                  style: depotFilledButtonStyle().copyWith(
-                                    padding: const WidgetStatePropertyAll(
-                                      EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                                    ),
-                                  ),
-                                  child: const Text('添加'),
+                  return DepotScrollbar(
+                    controller: _resultsScrollController,
+                    child: ListView.separated(
+                      controller: _resultsScrollController,
+                      padding: EdgeInsets.zero,
+                      itemCount: filteredServices.length,
+                      separatorBuilder: (context, index) => const SizedBox(height: 8),
+                      itemBuilder: (context, index) {
+                        final service = filteredServices[index];
+                        final added = widget.controller.managedServices.contains(service);
+                        return DepotRow(
+                          height: 54,
+                          child: Row(
+                            children: [
+                              const DepotDot(color: depotBlue, size: 14),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  service,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                        color: depotText,
+                                        fontWeight: FontWeight.w900,
+                                      ),
                                 ),
                               ),
-                          ],
-                        ),
-                      );
-                    },
+                              const SizedBox(width: 12),
+                              if (added)
+                                const DepotStatusPill(label: '已添加', color: depotMuted)
+                              else
+                                SizedBox(
+                                  width: 76,
+                                  child: FilledButton(
+                                    onPressed: () async {
+                                      await widget.controller.addManagedService(service);
+                                      if (context.mounted) {
+                                        Navigator.of(context).pop();
+                                      }
+                                    },
+                                    style: depotFilledButtonStyle().copyWith(
+                                      padding: const WidgetStatePropertyAll(
+                                        EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                                      ),
+                                    ),
+                                    child: const Text('添加'),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
                   );
                 },
               ),
@@ -385,7 +392,7 @@ class _ServiceControlRow extends StatelessWidget {
   }
 }
 
-class _ServiceLogsPanel extends StatelessWidget {
+class _ServiceLogsPanel extends StatefulWidget {
   const _ServiceLogsPanel({
     required this.service,
     required this.output,
@@ -395,6 +402,19 @@ class _ServiceLogsPanel extends StatelessWidget {
   final String? service;
   final String output;
   final bool isRunning;
+
+  @override
+  State<_ServiceLogsPanel> createState() => _ServiceLogsPanelState();
+}
+
+class _ServiceLogsPanelState extends State<_ServiceLogsPanel> {
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -413,7 +433,7 @@ class _ServiceLogsPanel extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    service == null ? '服务日志' : '$service 日志',
+                    widget.service == null ? '服务日志' : '${widget.service} 日志',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -422,25 +442,29 @@ class _ServiceLogsPanel extends StatelessWidget {
                         ),
                   ),
                 ),
-                if (isRunning && service != null)
+                if (widget.isRunning && widget.service != null)
                   const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
               ],
             ),
           ),
           SizedBox(
             height: 300,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-              child: Align(
-                alignment: Alignment.topLeft,
-                child: SelectableText(
-                  output.isEmpty ? '点击服务行的“查看日志”后显示输出。' : output,
-                  textAlign: TextAlign.left,
-                  style: TextStyle(
-                    color: output.isEmpty ? depotMuted : const Color(0xffd6eadf),
-                    fontFamily: 'monospace',
-                    fontSize: 13,
-                    height: 1.45,
+            child: DepotScrollbar(
+              controller: _scrollController,
+              child: SingleChildScrollView(
+                controller: _scrollController,
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: SelectableText(
+                    widget.output.isEmpty ? '点击服务行的“查看日志”后显示输出。' : widget.output,
+                    textAlign: TextAlign.left,
+                    style: TextStyle(
+                      color: widget.output.isEmpty ? depotMuted : const Color(0xffd6eadf),
+                      fontFamily: 'monospace',
+                      fontSize: 13,
+                      height: 1.45,
+                    ),
                   ),
                 ),
               ),

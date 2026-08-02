@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../classes/server_profile.dart';
 import '../../../components/app_scope.dart';
+import '../../../components/depot_scrollbar.dart';
 import '../../../cubits/app_controller.dart';
 
 const _bg = Color(0xff04130d);
@@ -24,11 +25,37 @@ class ConnectionView extends StatelessWidget {
       backgroundColor: _bg,
       body: SafeArea(
         child: Center(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.all(28),
-            child: _ConnectionContent(),
-          ),
+          child: _ConnectionScroll(),
         ),
+      ),
+    );
+  }
+}
+
+class _ConnectionScroll extends StatefulWidget {
+  const _ConnectionScroll();
+
+  @override
+  State<_ConnectionScroll> createState() => _ConnectionScrollState();
+}
+
+class _ConnectionScrollState extends State<_ConnectionScroll> {
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DepotScrollbar(
+      controller: _scrollController,
+      child: SingleChildScrollView(
+        controller: _scrollController,
+        padding: const EdgeInsets.all(28),
+        child: const _ConnectionContent(),
       ),
     );
   }
@@ -302,7 +329,7 @@ class _ConnectionPanel extends StatelessWidget {
           const SizedBox(height: 7),
           _DarkTextField(
             controller: nameController,
-            hintText: 'prod-01',
+            hintText: '请输入服务器名称',
             enabled: !isRunning,
           ),
           const SizedBox(height: 14),
@@ -680,24 +707,27 @@ class _TerminalOutputBoxState extends State<_TerminalOutputBox> {
             ),
           ),
           Expanded(
-            child: SingleChildScrollView(
+            child: DepotScrollbar(
               controller: _scrollController,
-              padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
-              child: Align(
-                alignment: Alignment.topLeft,
-                child: SelectableText(
-                  output,
-                  style: TextStyle(
-                    color: widget.text.trim().isEmpty ? _muted : const Color(0xffd6eadf),
-                    fontFamily: 'monospace',
-                    fontFamilyFallback: const [
-                      'Noto Sans Mono CJK SC',
-                      'Noto Sans CJK SC',
-                      'Noto Sans CJK',
-                      'WenQuanYi Micro Hei',
-                    ],
-                    fontSize: 12,
-                    height: 1.45,
+              child: SingleChildScrollView(
+                controller: _scrollController,
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: SelectableText(
+                    output,
+                    style: TextStyle(
+                      color: widget.text.trim().isEmpty ? _muted : const Color(0xffd6eadf),
+                      fontFamily: 'monospace',
+                      fontFamilyFallback: const [
+                        'Noto Sans Mono CJK SC',
+                        'Noto Sans CJK SC',
+                        'Noto Sans CJK',
+                        'WenQuanYi Micro Hei',
+                      ],
+                      fontSize: 12,
+                      height: 1.45,
+                    ),
                   ),
                 ),
               ),

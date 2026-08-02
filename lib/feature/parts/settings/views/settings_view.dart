@@ -49,7 +49,7 @@ class _SettingsViewState extends State<SettingsView> {
                     child: TextField(
                       controller: _nameController,
                       style: const TextStyle(color: depotText, fontWeight: FontWeight.w700),
-                      decoration: depotInputDecoration('名称', hint: 'prod-web-01', icon: Icons.badge_outlined),
+                      decoration: depotInputDecoration('名称', hint: '请输入名称', icon: Icons.badge_outlined),
                     ),
                   ),
                   SizedBox(

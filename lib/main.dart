@@ -38,7 +38,14 @@ class _SshDepotAppState extends State<SshDepotApp> {
       child: MaterialApp.router(
         title: 'ssh depot',
         theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff1f7a5f)),
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: depotAccent,
+            brightness: Brightness.dark,
+            surface: depotBg,
+          ),
+          scaffoldBackgroundColor: depotBg,
+          canvasColor: depotBg,
+          dialogTheme: const DialogThemeData(backgroundColor: depotPanel, surfaceTintColor: Colors.transparent),
           fontFamilyFallback: const [
             'Noto Sans CJK SC',
             'Noto Sans CJK',

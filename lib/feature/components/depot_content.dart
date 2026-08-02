@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
 import 'app_shell.dart';
+import 'depot_scrollbar.dart';
 
-class DepotContentPage extends StatelessWidget {
+class DepotContentPage extends StatefulWidget {
   const DepotContentPage({
     required this.title,
     required this.subtitle,
@@ -17,47 +18,64 @@ class DepotContentPage extends StatelessWidget {
   final List<Widget> children;
 
   @override
+  State<DepotContentPage> createState() => _DepotContentPageState();
+}
+
+class _DepotContentPageState extends State<DepotContentPage> {
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: EdgeInsets.zero,
-      children: [
-        DepotPanel(
-          padding: const EdgeInsets.fromLTRB(34, 28, 34, 28),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            color: depotText,
-                            fontWeight: FontWeight.w900,
-                          ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      subtitle,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: depotMuted,
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
-                  ],
+    return DepotScrollbar(
+      controller: _scrollController,
+      child: ListView(
+        controller: _scrollController,
+        padding: EdgeInsets.zero,
+        children: [
+          DepotPanel(
+            padding: const EdgeInsets.fromLTRB(34, 28, 34, 28),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.title,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              color: depotText,
+                              fontWeight: FontWeight.w900,
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        widget.subtitle,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: depotMuted,
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              if (actions.isNotEmpty) ...[
-                const SizedBox(width: 20),
-                Wrap(spacing: 10, runSpacing: 10, alignment: WrapAlignment.end, children: actions),
+                if (widget.actions.isNotEmpty) ...[
+                  const SizedBox(width: 20),
+                  Wrap(spacing: 10, runSpacing: 10, alignment: WrapAlignment.end, children: widget.actions),
+                ],
               ],
-            ],
+            ),
           ),
-        ),
-        const SizedBox(height: 22),
-        ...children,
-      ],
+          const SizedBox(height: 22),
+          ...widget.children,
+        ],
+      ),
     );
   }
 }

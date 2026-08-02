@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../cubits/app_controller.dart';
 import '../parts/connection/views/connection_view.dart';
 import 'app_scope.dart';
+import 'depot_scrollbar.dart';
 
 const depotBg = Color(0xff02110b);
 const depotPanel = Color(0xff0b2418);
@@ -122,7 +123,7 @@ const _items = [
   _ShellItem(path: '/overview', label: '概览', subtitle: '连接后首页', icon: Icons.dashboard_outlined),
   _ShellItem(path: '/packages', label: '软件包', subtitle: 'apt 安装/卸载', icon: Icons.inventory_2_outlined),
   _ShellItem(path: '/services', label: '服务', subtitle: '启停/重启/状态', icon: Icons.toggle_on_outlined),
-  _ShellItem(path: '/nginx', label: 'Nginx', subtitle: '站点与模板', icon: Icons.account_tree_outlined),
+  _ShellItem(path: '/nginx', label: '网站管理', subtitle: '站点配置', icon: Icons.account_tree_outlined),
   _ShellItem(label: 'SSL', subtitle: '证书管理', icon: Icons.key_outlined),
   _ShellItem(label: '文件', subtitle: '目录与编辑', icon: Icons.folder_outlined),
   _ShellItem(label: '日志', subtitle: '常见日志源', icon: Icons.notes_outlined),
@@ -203,17 +204,13 @@ class _TopBar extends StatelessWidget {
             const SizedBox(width: 10),
           ],
           _PillButton(label: '断开', icon: Icons.link_off, onPressed: onDisconnect),
-          const SizedBox(width: 10),
-          const _WindowDot(icon: Icons.radio_button_checked),
-          const SizedBox(width: 10),
-          const _WindowDot(icon: Icons.remove),
         ],
       ),
     );
   }
 }
 
-class _Sidebar extends StatelessWidget {
+class _Sidebar extends StatefulWidget {
   const _Sidebar({
     required this.selectedIndex,
     required this.statusLine,
@@ -223,6 +220,19 @@ class _Sidebar extends StatelessWidget {
   final int selectedIndex;
   final String statusLine;
   final ValueChanged<int> onSelect;
+
+  @override
+  State<_Sidebar> createState() => _SidebarState();
+}
+
+class _SidebarState extends State<_Sidebar> {
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -236,17 +246,21 @@ class _Sidebar extends StatelessWidget {
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: depotMuted, fontWeight: FontWeight.w700)),
           const SizedBox(height: 18),
           Expanded(
-            child: ListView.separated(
-              padding: EdgeInsets.zero,
-              itemCount: _items.length,
-              separatorBuilder: (context, index) => const SizedBox(height: 10),
-              itemBuilder: (context, index) {
-                return _NavTile(
-                  item: _items[index],
-                  selected: selectedIndex == index,
-                  onTap: () => onSelect(index),
-                );
-              },
+            child: DepotScrollbar(
+              controller: _scrollController,
+              child: ListView.separated(
+                controller: _scrollController,
+                padding: EdgeInsets.zero,
+                itemCount: _items.length,
+                separatorBuilder: (context, index) => const SizedBox(height: 10),
+                itemBuilder: (context, index) {
+                  return _NavTile(
+                    item: _items[index],
+                    selected: widget.selectedIndex == index,
+                    onTap: () => widget.onSelect(index),
+                  );
+                },
+              ),
             ),
           ),
           const SizedBox(height: 14),
@@ -267,7 +281,7 @@ class _Sidebar extends StatelessWidget {
                         .bodySmall
                         ?.copyWith(color: depotMuted, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 6),
-                Text(statusLine,
+                Text(widget.statusLine,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: depotText)),
@@ -480,25 +494,28 @@ class _TerminalPanelState extends State<_TerminalPanel> {
             ),
           ),
           Expanded(
-            child: SingleChildScrollView(
+            child: DepotScrollbar(
               controller: _scrollController,
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-              child: Align(
-                alignment: Alignment.topLeft,
-                child: SelectableText(
-                  text.isEmpty ? '暂无输出' : text,
-                  textAlign: TextAlign.left,
-                  style: const TextStyle(
-                    color: Color(0xffd6eadf),
-                    fontFamily: 'monospace',
-                    fontFamilyFallback: [
-                      'Noto Sans Mono CJK SC',
-                      'Noto Sans CJK SC',
-                      'Noto Sans CJK',
-                      'WenQuanYi Micro Hei',
-                    ],
-                    fontSize: 13,
-                    height: 1.45,
+              child: SingleChildScrollView(
+                controller: _scrollController,
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: SelectableText(
+                    text.isEmpty ? '暂无输出' : text,
+                    textAlign: TextAlign.left,
+                    style: const TextStyle(
+                      color: Color(0xffd6eadf),
+                      fontFamily: 'monospace',
+                      fontFamilyFallback: [
+                        'Noto Sans Mono CJK SC',
+                        'Noto Sans CJK SC',
+                        'Noto Sans CJK',
+                        'WenQuanYi Micro Hei',
+                      ],
+                      fontSize: 13,
+                      height: 1.45,
+                    ),
                   ),
                 ),
               ),
@@ -529,26 +546,6 @@ class _PillButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       ),
-    );
-  }
-}
-
-class _WindowDot extends StatelessWidget {
-  const _WindowDot({required this.icon});
-
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: depotPanelAlt.withValues(alpha: 0.34),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: depotLine),
-      ),
-      child: Icon(icon, size: 18, color: const Color(0xff7deac0)),
     );
   }
 }
