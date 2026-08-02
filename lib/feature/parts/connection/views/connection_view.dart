@@ -1,8 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../classes/server_profile.dart';
 import '../../../components/app_scope.dart';
 import '../../../cubits/app_controller.dart';
+
+const _bg = Color(0xff04130d);
+const _panel = Color(0xff0b2418);
+const _panelAlt = Color(0xff103520);
+const _line = Color(0xff1d5940);
+const _lineDim = Color(0xff16432f);
+const _text = Color(0xffeef8f2);
+const _muted = Color(0xff9db4a8);
+const _accent = Color(0xff3fe09a);
 
 class ConnectionView extends StatelessWidget {
   const ConnectionView({super.key});
@@ -10,8 +20,14 @@ class ConnectionView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Scaffold(
-      body: Center(
-        child: SingleChildScrollView(child: _ConnectionContent()),
+      backgroundColor: _bg,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.all(28),
+            child: _ConnectionContent(),
+          ),
+        ),
       ),
     );
   }
@@ -25,10 +41,13 @@ class _ConnectionContent extends StatefulWidget {
 }
 
 class _ConnectionContentState extends State<_ConnectionContent> {
+  final _nameController = TextEditingController();
   final _hostController = TextEditingController();
+  String? _hostError;
 
   @override
   void dispose() {
+    _nameController.dispose();
     _hostController.dispose();
     super.dispose();
   }
@@ -36,86 +55,711 @@ class _ConnectionContentState extends State<_ConnectionContent> {
   @override
   Widget build(BuildContext context) {
     final controller = AppScope.of(context);
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 560),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('登录服务器', style: Theme.of(context).textTheme.headlineMedium),
-            const SizedBox(height: 8),
-            Text('通过 SSH 连接 root 用户后进入操作面板', style: Theme.of(context).textTheme.bodyMedium),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: 420,
-              child: TextField(
-                controller: _hostController,
-                onSubmitted: controller.isRunning ? null : (_) => _login(controller),
-                decoration: InputDecoration(
-                  labelText: 'Host',
-                  hintText: '1.2.3.4 或 ~/.ssh/config Host 别名',
-                  border: OutlineInputBorder(),
+    final compact = MediaQuery.sizeOf(context).width < 860;
+
+    return Container(
+      width: compact ? double.infinity : 880,
+      constraints: const BoxConstraints(maxWidth: 920),
+      padding: EdgeInsets.all(compact ? 22 : 38),
+      decoration: BoxDecoration(
+        color: _panel,
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: _line),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '连接服务器',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  color: _text,
+                  fontWeight: FontWeight.w800,
                 ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            const SizedBox(
-              width: 420,
-              child: TextField(
-                enabled: false,
-                decoration: InputDecoration(
-                  labelText: 'User',
-                  hintText: 'root',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: controller.isRunning ? null : () => _login(controller),
-              icon: const Icon(Icons.link),
-              label: Text(controller.isRunning ? '连接中' : '登录'),
-            ),
-            const SizedBox(height: 24),
-            if (controller.servers.isNotEmpty) ...[
-              Text('历史服务器', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '先从已保存的服务器里选择，或新建配置后连接。',
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: _muted),
+          ),
+          const SizedBox(height: 24),
+          Flex(
+            direction: compact ? Axis.vertical : Axis.horizontal,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               SizedBox(
-                width: 520,
-                child: Column(
-                  children: [
-                    for (final server in controller.servers)
-                      ListTile(
-                        leading: const Icon(Icons.dns_outlined),
-                        title: Text(server.name.isEmpty ? server.host : server.name),
-                        subtitle: Text(server.target),
-                        trailing: FilledButton(
-                          onPressed: controller.isRunning ? null : () => _quickLogin(controller, server.host),
-                          child: const Text('快速登录'),
-                        ),
-                      ),
-                  ],
+                width: compact ? double.infinity : 284,
+                child: _SavedServersPanel(
+                  servers: controller.servers,
+                  disabled: controller.isRunning,
+                  onSelect: _fillServer,
+                  onCreate: _clearForm,
+                  onConnect: (server) => _quickLogin(controller, server),
                 ),
               ),
+              SizedBox(width: compact ? 0 : 20, height: compact ? 20 : 0),
+              if (compact)
+                _ConnectionPanel(
+                  nameController: _nameController,
+                  hostController: _hostController,
+                  isRunning: controller.isRunning,
+                  hostError: _hostError,
+                  terminalText: controller.terminalLines.join(),
+                  onSubmitted: () => _login(controller),
+                  onTest: () => _testConnection(controller),
+                  onConnect: () => _login(controller),
+                  onSave: () => _save(controller),
+                )
+              else
+                Expanded(
+                  child: _ConnectionPanel(
+                    nameController: _nameController,
+                    hostController: _hostController,
+                    isRunning: controller.isRunning,
+                    hostError: _hostError,
+                    terminalText: controller.terminalLines.join(),
+                    onSubmitted: () => _login(controller),
+                    onTest: () => _testConnection(controller),
+                    onConnect: () => _login(controller),
+                    onSave: () => _save(controller),
+                  ),
+                ),
             ],
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
+  Future<void> _testConnection(AppController controller) async {
+    final host = _validHostOrNull();
+    if (host == null) {
+      return;
+    }
+    await controller.testConnection(host);
+  }
+
   Future<void> _login(AppController controller) async {
-    await controller.testAndConnect(_hostController.text);
+    await _connect(controller);
     if (!mounted || !controller.isConnected) {
       return;
     }
     context.go('/overview');
   }
 
-  Future<void> _quickLogin(AppController controller, String host) async {
-    _hostController.text = host;
+  Future<void> _connect(AppController controller) async {
+    final host = _validHostOrNull();
+    if (host == null) {
+      return;
+    }
+    await controller.connect(host);
+  }
+
+  String? _validHostOrNull() {
+    final host = _hostController.text.trim();
+    if (host.isEmpty) {
+      setState(() => _hostError = '请输入主机 IP 或 ~/.ssh/config Host 别名');
+      return null;
+    }
+    setState(() => _hostError = null);
+    return host;
+  }
+
+  Future<void> _quickLogin(
+    AppController controller,
+    ServerProfile server,
+  ) async {
+    _fillServer(server);
     await _login(controller);
   }
+
+  Future<void> _save(AppController controller) async {
+    final host = _hostController.text.trim();
+    if (host.isEmpty) {
+      setState(() => _hostError = '请输入主机 IP 或 ~/.ssh/config Host 别名');
+      return;
+    }
+    setState(() => _hostError = null);
+    await controller.saveServer(
+      ServerProfile(
+        name: _nameController.text.trim().isEmpty ? host : _nameController.text.trim(),
+        host: host,
+      ),
+    );
+  }
+
+  void _fillServer(ServerProfile server) {
+    setState(() {
+      _nameController.text = server.name.isEmpty ? server.host : server.name;
+      _hostController.text = server.host;
+      _hostError = null;
+    });
+  }
+
+  void _clearForm() {
+    setState(() {
+      _nameController.clear();
+      _hostController.clear();
+      _hostError = null;
+    });
+  }
+}
+
+class _SavedServersPanel extends StatelessWidget {
+  const _SavedServersPanel({
+    required this.servers,
+    required this.disabled,
+    required this.onSelect,
+    required this.onCreate,
+    required this.onConnect,
+  });
+
+  final List<ServerProfile> servers;
+  final bool disabled;
+  final ValueChanged<ServerProfile> onSelect;
+  final VoidCallback onCreate;
+  final ValueChanged<ServerProfile> onConnect;
+
+  @override
+  Widget build(BuildContext context) {
+    return _GlassPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('已保存的服务器', style: _titleStyle(context)),
+          const SizedBox(height: 4),
+          Text('点击即可填入表单', style: _captionStyle(context)),
+          const SizedBox(height: 18),
+          if (servers.isEmpty)
+            const _EmptySavedServers()
+          else
+            for (final server in servers.take(5)) ...[
+              _ServerTile(
+                server: server,
+                disabled: disabled,
+                isDefault: servers.first == server,
+                onSelect: () => onSelect(server),
+                onConnect: () => onConnect(server),
+              ),
+              const SizedBox(height: 12),
+            ],
+          const SizedBox(height: 58),
+          SizedBox(
+            width: double.infinity,
+            height: 46,
+            child: OutlinedButton.icon(
+              onPressed: disabled ? null : onCreate,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('新增服务器'),
+              style: _outlinedButtonStyle(),
+            ),
+          ),
+          const SizedBox(height: 14),
+          const _InfoBox(),
+        ],
+      ),
+    );
+  }
+}
+
+class _ConnectionPanel extends StatelessWidget {
+  const _ConnectionPanel({
+    required this.nameController,
+    required this.hostController,
+    required this.isRunning,
+    required this.hostError,
+    required this.terminalText,
+    required this.onSubmitted,
+    required this.onTest,
+    required this.onConnect,
+    required this.onSave,
+  });
+
+  final TextEditingController nameController;
+  final TextEditingController hostController;
+  final bool isRunning;
+  final String? hostError;
+  final String terminalText;
+  final VoidCallback onSubmitted;
+  final VoidCallback onTest;
+  final VoidCallback onConnect;
+  final VoidCallback onSave;
+
+  @override
+  Widget build(BuildContext context) {
+    return _GlassPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('连接信息', style: _titleStyle(context)),
+          const SizedBox(height: 4),
+          Text('仅支持密钥认证，默认使用 root 用户', style: _captionStyle(context)),
+          const SizedBox(height: 22),
+          const _FieldLabel('服务器名称'),
+          const SizedBox(height: 7),
+          _DarkTextField(
+            controller: nameController,
+            hintText: 'prod-01',
+            enabled: !isRunning,
+          ),
+          const SizedBox(height: 14),
+          const _FieldLabel('主机 / 别名'),
+          const SizedBox(height: 7),
+          _DarkTextField(
+            controller: hostController,
+            hintText: '1.2.3.4',
+            enabled: !isRunning,
+            errorText: hostError,
+            onSubmitted: (_) => onSubmitted(),
+          ),
+          const SizedBox(height: 14),
+          const _FieldLabel('用户名'),
+          const SizedBox(height: 7),
+          const _DarkTextField(initialValue: 'root', enabled: false),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              SizedBox(
+                height: 44,
+                child: OutlinedButton.icon(
+                  onPressed: isRunning ? null : onTest,
+                  icon: const _PulseDot(),
+                  label: Text(isRunning ? '连接中' : '测试连接'),
+                  style: _outlinedButtonStyle(),
+                ),
+              ),
+              SizedBox(
+                height: 44,
+                child: FilledButton(
+                  onPressed: isRunning ? null : onConnect,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _accent,
+                    foregroundColor: const Color(0xff042014),
+                    disabledBackgroundColor: _accent.withValues(alpha: 0.38),
+                    padding: const EdgeInsets.symmetric(horizontal: 28),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    textStyle: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  child: Text(isRunning ? '连接中' : '开始连接'),
+                ),
+              ),
+              SizedBox(
+                height: 44,
+                child: OutlinedButton(
+                  onPressed: isRunning ? null : onSave,
+                  style: _outlinedButtonStyle(),
+                  child: const Text('保存配置'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          _TerminalOutputBox(text: terminalText),
+        ],
+      ),
+    );
+  }
+}
+
+class _ServerTile extends StatelessWidget {
+  const _ServerTile({
+    required this.server,
+    required this.disabled,
+    required this.isDefault,
+    required this.onSelect,
+    required this.onConnect,
+  });
+
+  final ServerProfile server;
+  final bool disabled;
+  final bool isDefault;
+  final VoidCallback onSelect;
+  final VoidCallback onConnect;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = server.name.isEmpty ? server.host : server.name;
+    return Material(
+      color: isDefault ? _panelAlt : Colors.transparent,
+      borderRadius: BorderRadius.circular(22),
+      child: InkWell(
+        onTap: disabled ? null : onSelect,
+        onDoubleTap: disabled ? null : onConnect,
+        borderRadius: BorderRadius.circular(22),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 78),
+          padding: const EdgeInsets.fromLTRB(16, 13, 14, 13),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: isDefault ? _line : _lineDim),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 16,
+                height: 16,
+                decoration: BoxDecoration(
+                  color: isDefault ? _accent : _muted,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: _titleStyle(context),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      server.target,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: _captionStyle(context),
+                    ),
+                    if (server.remark != null && server.remark!.trim().isNotEmpty)
+                      Text(
+                        server.remark!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: _captionStyle(context),
+                      ),
+                  ],
+                ),
+              ),
+              if (isDefault)
+                SizedBox(
+                  height: 28,
+                  child: FilledButton(
+                    onPressed: disabled ? null : onConnect,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _accent,
+                      foregroundColor: const Color(0xff08321f),
+                      padding: const EdgeInsets.symmetric(horizontal: 18),
+                      textStyle: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    child: const Text('默认'),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GlassPanel extends StatelessWidget {
+  const _GlassPanel({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: const Color(0xff0a2016),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: _lineDim),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _DarkTextField extends StatelessWidget {
+  const _DarkTextField({
+    this.controller,
+    this.initialValue,
+    this.hintText,
+    this.errorText,
+    this.enabled = true,
+    this.onSubmitted,
+  });
+
+  final TextEditingController? controller;
+  final String? initialValue;
+  final String? hintText;
+  final String? errorText;
+  final bool enabled;
+  final ValueChanged<String>? onSubmitted;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: controller,
+      initialValue: initialValue,
+      enabled: enabled,
+      onFieldSubmitted: onSubmitted,
+      style: const TextStyle(color: _text, fontWeight: FontWeight.w700),
+      cursorColor: _accent,
+      decoration: InputDecoration(
+        hintText: hintText,
+        errorText: errorText,
+        hintStyle: TextStyle(color: _muted.withValues(alpha: 0.72)),
+        errorStyle: const TextStyle(color: Color(0xffff8a7a), fontSize: 12),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        filled: true,
+        fillColor: const Color(0xff06170f),
+        disabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(color: _lineDim.withValues(alpha: 0.6)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(color: _lineDim),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(color: Color(0xffff8a7a)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(color: _accent),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(color: Color(0xffff8a7a)),
+        ),
+      ),
+    );
+  }
+}
+
+class _FieldLabel extends StatelessWidget {
+  const _FieldLabel(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: _captionStyle(context).copyWith(fontWeight: FontWeight.w700),
+    );
+  }
+}
+
+class _InfoBox extends StatelessWidget {
+  const _InfoBox();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      decoration: BoxDecoration(
+        color: const Color(0xff071a11),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _lineDim),
+      ),
+      child: DefaultTextStyle(
+        style: Theme.of(context).textTheme.bodySmall!.copyWith(
+              color: const Color(0xffc8dbcf),
+              height: 1.55,
+            ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('说明', style: _titleStyle(context).copyWith(fontSize: 13)),
+            const SizedBox(height: 6),
+            const Text('- 不支持密码登录'),
+            const Text('- 自动继承 ~/.ssh/config'),
+            const Text('- 连接测试会执行 root@host echo __myctl_ok__'),
+            const Text('- 连接成功后进入概览页'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TerminalOutputBox extends StatefulWidget {
+  const _TerminalOutputBox({required this.text});
+
+  final String text;
+
+  @override
+  State<_TerminalOutputBox> createState() => _TerminalOutputBoxState();
+}
+
+class _TerminalOutputBoxState extends State<_TerminalOutputBox> {
+  final _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollToBottom();
+  }
+
+  @override
+  void didUpdateWidget(covariant _TerminalOutputBox oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.text != widget.text) {
+      _scrollToBottom();
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) {
+        return;
+      }
+      _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final output = widget.text.trim().isEmpty ? '暂无输出' : widget.text.trimRight();
+    return Container(
+      width: double.infinity,
+      height: 148,
+      decoration: BoxDecoration(
+        color: const Color(0xff020b07),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _lineDim),
+      ),
+      child: Column(
+        children: [
+          Container(
+            height: 34,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: _lineDim)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.terminal, color: _muted, size: 16),
+                const SizedBox(width: 8),
+                Text(
+                  '所有输出',
+                  style: _captionStyle(
+                    context,
+                  ).copyWith(color: _text, fontWeight: FontWeight.w800),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              controller: _scrollController,
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: SelectableText(
+                  output,
+                  style: TextStyle(
+                    color: widget.text.trim().isEmpty ? _muted : const Color(0xffd6eadf),
+                    fontFamily: 'monospace',
+                    fontFamilyFallback: const [
+                      'Noto Sans Mono CJK SC',
+                      'Noto Sans CJK SC',
+                      'Noto Sans CJK',
+                      'WenQuanYi Micro Hei',
+                    ],
+                    fontSize: 12,
+                    height: 1.45,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptySavedServers extends StatelessWidget {
+  const _EmptySavedServers();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 28),
+      decoration: BoxDecoration(
+        color: const Color(0xff071a11),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: _lineDim),
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.dns_outlined, color: _muted.withValues(alpha: 0.75)),
+          const SizedBox(height: 10),
+          Text('暂无已保存服务器', style: _titleStyle(context)),
+          const SizedBox(height: 4),
+          Text('填写右侧表单后保存配置', style: _captionStyle(context)),
+        ],
+      ),
+    );
+  }
+}
+
+class _PulseDot extends StatelessWidget {
+  const _PulseDot();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 18,
+      height: 18,
+      decoration: BoxDecoration(
+        color: _accent,
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: _accent.withValues(alpha: 0.45),
+            blurRadius: 14,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+TextStyle _titleStyle(BuildContext context) {
+  return Theme.of(
+    context,
+  ).textTheme.titleSmall!.copyWith(color: _text, fontWeight: FontWeight.w800);
+}
+
+TextStyle _captionStyle(BuildContext context) {
+  return Theme.of(context).textTheme.bodySmall!.copyWith(color: _muted);
+}
+
+ButtonStyle _outlinedButtonStyle() {
+  return OutlinedButton.styleFrom(
+    foregroundColor: _text,
+    disabledForegroundColor: _muted.withValues(alpha: 0.48),
+    side: const BorderSide(color: _line),
+    padding: const EdgeInsets.symmetric(horizontal: 18),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+    textStyle: const TextStyle(fontWeight: FontWeight.w700),
+  );
 }

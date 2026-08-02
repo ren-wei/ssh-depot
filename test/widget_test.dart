@@ -7,9 +7,9 @@ void main() {
     await tester.pumpWidget(const SshDepotApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('登录服务器'), findsOneWidget);
-    expect(find.text('通过 SSH 连接 root 用户后进入操作面板'), findsOneWidget);
-    expect(find.text('登录'), findsOneWidget);
+    expect(find.text('连接服务器'), findsOneWidget);
+    expect(find.text('先从已保存的服务器里选择，或新建配置后连接。'), findsOneWidget);
+    expect(find.text('开始连接'), findsOneWidget);
     expect(find.text('软件包'), findsNothing);
   });
 }

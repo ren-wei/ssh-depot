@@ -23,8 +23,7 @@ class AppController extends ChangeNotifier {
       : _processRunner = LocalProcessRunner(),
         _queue = OperationQueue() {
     _sshExecutor = SshExecutor(processRunner: _processRunner);
-    final home = Platform.environment['HOME'] ?? Directory.current.path;
-    _serversStore = ServersStore(paths: ConfigPaths(homeDirectory: home));
+    _serversStore = ServersStore(paths: ConfigPaths(homeDirectory: _resolveHomeDirectory()));
   }
 
   late final SshExecutor _sshExecutor;
@@ -51,12 +50,23 @@ class AppController extends ChangeNotifier {
 
   Future<void> saveServer(ServerProfile server) async {
     final existingIndex = servers.indexWhere((item) => item.host == server.host && item.user == server.user);
+    final nextServers = [...servers];
     if (existingIndex >= 0) {
-      servers = [...servers]..[existingIndex] = server;
+      nextServers[existingIndex] = server;
     } else {
-      servers = [...servers, server];
+      nextServers.add(server);
     }
-    await _serversStore.save(servers);
+
+    try {
+      await _serversStore.save(nextServers);
+    } catch (error) {
+      _setStatus('保存服务器失败');
+      _appendTerminal('\n✗ 保存服务器配置失败: $error\n');
+      return;
+    }
+    servers = nextServers;
+    _setStatus('✓ 已保存服务器 ${server.target}');
+    _appendTerminal('\n✓ 已保存服务器配置: ${_serversStore.serversFile}\n');
     notifyListeners();
   }
 
@@ -79,24 +89,38 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> testAndConnect(String host) async {
+  Future<bool> testConnection(String host) async {
+    final cleanHost = host.trim();
+    if (cleanHost.isEmpty) {
+      _setStatus('请输入 Host');
+      return false;
+    }
+    final exitCode = await _runConnectionTest(cleanHost);
+    return exitCode == 0;
+  }
+
+  Future<void> connect(String host) async {
     final cleanHost = host.trim();
     if (cleanHost.isEmpty) {
       _setStatus('请输入 Host');
       return;
     }
-    final nextTarget = SshTarget(host: cleanHost);
-    final exitCode = await _runOnTarget(
-      target: nextTarget,
-      summary: '连接测试',
-      command: 'echo __myctl_ok__',
-      timeout: const Duration(seconds: 12),
-    );
+    final exitCode = await _runConnectionTest(cleanHost);
     if (exitCode == 0) {
-      target = nextTarget;
+      target = SshTarget(host: cleanHost);
       await saveServer(ServerProfile(name: cleanHost, host: cleanHost));
       _setStatus('✓ root@$cleanHost 已连接');
     }
+  }
+
+  Future<int> _runConnectionTest(String cleanHost) {
+    final nextTarget = SshTarget(host: cleanHost);
+    return _runOnTarget(
+      target: nextTarget,
+      summary: '测试连接',
+      command: 'echo __myctl_ok__',
+      timeout: const Duration(seconds: 12),
+    );
   }
 
   Future<void> installPackage(String packageName) {
@@ -263,7 +287,7 @@ class AppController extends ChangeNotifier {
   }) {
     return _queue.run(() async {
       isRunning = true;
-      _appendTerminal('\n\$ $summary\n');
+      _appendTerminal('\n\$ ${_displaySshCommand(target, command)}\n');
       _setStatus(summary);
 
       int exitCode;
@@ -282,6 +306,18 @@ class AppController extends ChangeNotifier {
       _setStatus(exitCode == 0 ? '✓ $summary 成功' : '✗ $summary 失败');
       return exitCode;
     });
+  }
+
+  String _displaySshCommand(SshTarget target, String command) {
+    return [
+      'ssh',
+      '-o',
+      'BatchMode=yes',
+      '-o',
+      'ConnectTimeout=10',
+      shellQuote(target.address),
+      shellQuote(command),
+    ].join(' ');
   }
 
   void _appendOutput(ProcessOutputChunk chunk) {
@@ -312,6 +348,22 @@ class AppController extends ChangeNotifier {
 
   bool _isSafeSiteName(String value) {
     return RegExp(r'^[a-zA-Z0-9][a-zA-Z0-9._-]*$').hasMatch(value);
+  }
+
+  static String _resolveHomeDirectory() {
+    final home = Platform.environment['HOME'];
+    if (home != null && home.isNotEmpty && !home.contains('/Library/Containers/')) {
+      return home;
+    }
+
+    if (Platform.isMacOS) {
+      final user = Platform.environment['USER'];
+      if (user != null && user.isNotEmpty) {
+        return '/Users/$user';
+      }
+    }
+
+    return home ?? Directory.current.path;
   }
 }
 
