@@ -51,6 +51,7 @@ class AppShell extends StatelessWidget {
                       Column(
                         children: [
                           _TopBar(
+                            title: _serverTitle(controller),
                             target: target.address,
                             isRunning: controller.isRunning,
                             onCancel: controller.cancelRunning,
@@ -98,6 +99,19 @@ class AppShell extends StatelessWidget {
       },
     );
   }
+}
+
+String _serverTitle(AppController controller) {
+  final target = controller.target;
+  if (target == null) {
+    return '';
+  }
+  for (final server in controller.servers) {
+    if (server.host == target.host && server.user == target.user && server.name.trim().isNotEmpty) {
+      return server.name.trim();
+    }
+  }
+  return target.address;
 }
 
 int _selectedIndexForPath(String path) {
@@ -152,12 +166,14 @@ class _GlowBackdrop extends StatelessWidget {
 
 class _TopBar extends StatelessWidget {
   const _TopBar({
+    required this.title,
     required this.target,
     required this.isRunning,
     required this.onCancel,
     required this.onDisconnect,
   });
 
+  final String title;
   final String target;
   final bool isRunning;
   final VoidCallback onCancel;
@@ -185,7 +201,7 @@ class _TopBar extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text('myctl',
+              Text(title,
                   style:
                       Theme.of(context).textTheme.titleLarge?.copyWith(color: depotText, fontWeight: FontWeight.w800)),
               const SizedBox(height: 2),

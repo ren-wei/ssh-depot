@@ -88,9 +88,9 @@ class _OverviewPageState extends State<OverviewPage> {
                 const SizedBox(width: 18),
                 Expanded(
                   child: _MetricCard(
-                    label: '服务数',
-                    value: snapshot == null ? '--' : '${snapshot.activeServiceCount}',
-                    source: 'systemctl is-active',
+                    label: '关注服务数',
+                    value: '${controller.managedServices.length}',
+                    source: '服务页关注项',
                     color: depotRed,
                   ),
                 ),
@@ -153,7 +153,7 @@ class _HeroPanel extends StatelessWidget {
                         ?.copyWith(color: depotText, fontWeight: FontWeight.w800)),
                 const SizedBox(height: 8),
                 Text(
-                  '已连接 1 台主机 · ${snapshot == null ? '等待刷新资源快照' : '关键服务与资源快照已更新'}',
+                  '已连接 1 台主机 · ${snapshot == null ? '等待刷新运行状态' : '运行状态已更新'}',
                   style: Theme.of(context)
                       .textTheme
                       .headlineSmall
@@ -161,7 +161,7 @@ class _HeroPanel extends StatelessWidget {
                 ),
                 const SizedBox(height: 14),
                 Text(
-                  '系统信息、资源快照、关键服务状态与最近操作，全部按手动刷新更新，输出继续写入底部终端。',
+                  '集中查看系统资源、服务状态和最近操作记录。点击刷新后会通过当前 SSH 连接获取最新数据。',
                   style:
                       Theme.of(context).textTheme.bodyMedium?.copyWith(color: depotMuted, fontWeight: FontWeight.w600),
                 ),
@@ -285,7 +285,8 @@ class _ServiceStatusPanel extends StatelessWidget {
           Text('关键服务状态速览',
               style: Theme.of(context).textTheme.titleLarge?.copyWith(color: depotText, fontWeight: FontWeight.w900)),
           const SizedBox(height: 4),
-          Text('默认服务 nginx，可在服务页手动添加更多服务', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: depotMuted)),
+          Text('展示已关注服务的运行状态，可在服务页添加或移除关注项。',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: depotMuted)),
           const SizedBox(height: 18),
           const _ServiceHeader(),
           const SizedBox(height: 10),
