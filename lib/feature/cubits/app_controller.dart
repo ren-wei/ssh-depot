@@ -10,6 +10,7 @@ import '../classes/overview_snapshot.dart';
 import '../classes/server_profile.dart';
 import '../packages/command_runner/operation_queue.dart';
 import '../packages/local_config/config_paths.dart';
+import '../packages/local_config/service_preferences_store.dart';
 import '../packages/local_config/servers_store.dart';
 import '../packages/nginx_template/built_in_templates.dart';
 import '../packages/nginx_template/template_manifest.dart';
@@ -25,11 +26,14 @@ class AppController extends ChangeNotifier {
       : _processRunner = LocalProcessRunner(),
         _queue = OperationQueue() {
     _sshExecutor = SshExecutor(processRunner: _processRunner);
-    _serversStore = ServersStore(paths: ConfigPaths(homeDirectory: _resolveHomeDirectory()));
+    final paths = ConfigPaths(homeDirectory: _resolveHomeDirectory());
+    _serversStore = ServersStore(paths: paths);
+    _servicePreferencesStore = ServicePreferencesStore(paths: paths);
   }
 
   late final SshExecutor _sshExecutor;
   late final ServersStore _serversStore;
+  late final ServicePreferencesStore _servicePreferencesStore;
   final LocalProcessRunner _processRunner;
   final OperationQueue _queue;
   final TerminalLineBuffer _lineBuffer = TerminalLineBuffer();
@@ -37,8 +41,12 @@ class AppController extends ChangeNotifier {
   final List<OperationRecord> _recentOperations = [];
 
   List<ServerProfile> servers = [];
+  List<String> managedServices = const ['nginx'];
+  Map<String, ServiceSnapshot> serviceSnapshots = const {};
   SshTarget? target;
   OverviewSnapshot? overviewSnapshot;
+  String? serviceLogsService;
+  String serviceLogsOutput = '';
   bool isRunning = false;
   bool overviewLoading = false;
   bool terminalExpanded = false;
@@ -51,6 +59,108 @@ class AppController extends ChangeNotifier {
 
   Future<void> load() async {
     servers = await _serversStore.load();
+    managedServices = await _servicePreferencesStore.load();
+    notifyListeners();
+  }
+
+  Future<void> addManagedService(String service) async {
+    final cleanService = service.trim();
+    if (!_isSafeServiceName(cleanService)) {
+      _setStatus('无效服务名');
+      return;
+    }
+    if (managedServices.contains(cleanService)) {
+      _setStatus('服务已存在');
+      return;
+    }
+
+    managedServices = [...managedServices, cleanService];
+    await _saveManagedServices();
+    _setStatus('✓ 已添加服务 $cleanService');
+    if (isConnected) {
+      await refreshServiceStatus(cleanService);
+    }
+  }
+
+  Future<void> removeManagedService(String service) async {
+    managedServices = [
+      for (final item in managedServices)
+        if (item != service) item,
+    ];
+    if (managedServices.isEmpty) {
+      managedServices = const ['nginx'];
+    }
+    serviceSnapshots = {
+      for (final entry in serviceSnapshots.entries)
+        if (managedServices.contains(entry.key)) entry.key: entry.value,
+    };
+    overviewSnapshot = _filterOverviewServices(overviewSnapshot);
+    await _saveManagedServices();
+    _setStatus('✓ 已移除服务 $service');
+  }
+
+  Future<List<String>> searchRemoteServices() async {
+    final currentTarget = target;
+    if (currentTarget == null) {
+      _setStatus('请先连接服务器');
+      return const [];
+    }
+
+    final output = StringBuffer();
+    final exitCode = await _runOnTarget(
+      target: currentTarget,
+      summary: '搜索服务',
+      command: 'systemctl list-unit-files --type=service --no-pager --no-legend; '
+          'systemctl list-units --type=service --all --no-pager --no-legend',
+      timeout: const Duration(seconds: 20),
+      onOutput: (chunk) {
+        if (!chunk.isStdErr) {
+          output.write(chunk.text);
+        }
+      },
+    );
+
+    if (exitCode != 0) {
+      return const [];
+    }
+    return _parseSystemdServices(output.toString());
+  }
+
+  Future<void> refreshServiceStatus(String service) async {
+    final currentTarget = target;
+    if (currentTarget == null) {
+      _setStatus('请先连接服务器');
+      return;
+    }
+    if (!_isSafeServiceName(service)) {
+      _setStatus('无效服务名');
+      return;
+    }
+
+    final output = StringBuffer();
+    final exitCode = await _runOnTarget(
+      target: currentTarget,
+      summary: '获取 $service 状态',
+      command: 'status=\$(systemctl is-active ${shellQuote(service)} 2>/dev/null || true); '
+          'enabled=\$(systemctl is-enabled ${shellQuote(service)} 2>/dev/null || true); '
+          'printf "service=%s;status=%s;enabled=%s\\n" ${shellQuote(service)} "\${status:-unknown}" "\${enabled:-unknown}"',
+      timeout: const Duration(seconds: 12),
+      onOutput: (chunk) {
+        if (!chunk.isStdErr) {
+          output.write(chunk.text);
+        }
+      },
+    );
+
+    if (exitCode != 0) {
+      return;
+    }
+    final snapshot = _parseServiceSnapshot(output.toString());
+    if (snapshot == null) {
+      return;
+    }
+    serviceSnapshots = {...serviceSnapshots, snapshot.name: snapshot};
+    overviewSnapshot = _replaceOverviewService(overviewSnapshot, snapshot);
     notifyListeners();
   }
 
@@ -224,6 +334,38 @@ class AppController extends ChangeNotifier {
     return runRemote(summary: '$service $action', command: command);
   }
 
+  Future<void> fetchServiceLogs(String service) async {
+    final currentTarget = target;
+    if (currentTarget == null) {
+      _setStatus('请先连接服务器');
+      return;
+    }
+    if (!_isSafeServiceName(service)) {
+      _setStatus('无效服务名');
+      return;
+    }
+    serviceLogsService = service;
+    serviceLogsOutput = '';
+    notifyListeners();
+
+    final output = StringBuffer();
+    final exitCode = await _runOnTarget(
+      target: currentTarget,
+      summary: '查看 $service 日志',
+      command: 'journalctl -u ${shellQuote(service)} --no-pager -n 80',
+      onOutput: (chunk) {
+        output.write(chunk.text);
+        serviceLogsOutput = output.toString();
+        notifyListeners();
+      },
+    );
+
+    if (output.isEmpty) {
+      serviceLogsOutput = exitCode == 0 ? '暂无日志输出' : '查看日志失败';
+      notifyListeners();
+    }
+  }
+
   Future<void> refreshOverview() async {
     final currentTarget = target;
     if (currentTarget == null) {
@@ -237,7 +379,7 @@ class AppController extends ChangeNotifier {
     final exitCode = await _runOnTarget(
       target: currentTarget,
       summary: '刷新概览',
-      command: _overviewCommand,
+      command: _overviewCommandFor(managedServices),
       timeout: const Duration(seconds: 20),
       onOutput: (chunk) {
         if (!chunk.isStdErr) {
@@ -248,6 +390,10 @@ class AppController extends ChangeNotifier {
 
     if (exitCode == 0) {
       overviewSnapshot = const OverviewParser().parse(output.toString());
+      serviceSnapshots = {
+        ...serviceSnapshots,
+        for (final service in overviewSnapshot!.services) service.name: service,
+      };
     }
     overviewLoading = false;
     notifyListeners();
@@ -483,6 +629,116 @@ class AppController extends ChangeNotifier {
 
     return home ?? Directory.current.path;
   }
+
+  Future<void> _saveManagedServices() async {
+    try {
+      await _servicePreferencesStore.save(managedServices);
+    } catch (error) {
+      _setStatus('✗ 保存服务列表失败: $error');
+    }
+    notifyListeners();
+  }
+
+  OverviewSnapshot? _filterOverviewServices(OverviewSnapshot? snapshot) {
+    if (snapshot == null) {
+      return null;
+    }
+    return OverviewSnapshot(
+      distribution: snapshot.distribution,
+      kernel: snapshot.kernel,
+      uptime: snapshot.uptime,
+      cpuPercent: snapshot.cpuPercent,
+      memoryPercent: snapshot.memoryPercent,
+      diskPercent: snapshot.diskPercent,
+      services: [
+        for (final service in snapshot.services)
+          if (managedServices.contains(service.name)) service,
+      ],
+    );
+  }
+
+  List<String> _parseSystemdServices(String output) {
+    final services = <String>{};
+    for (final line in const LineSplitter().convert(output)) {
+      final columns = line.trim().split(RegExp(r'\s+'));
+      if (columns.isEmpty) {
+        continue;
+      }
+      final unit = columns.first.trim();
+      if (!unit.endsWith('.service')) {
+        continue;
+      }
+      final service = unit.substring(0, unit.length - '.service'.length);
+      if (_isSafeServiceName(service)) {
+        services.add(service);
+      }
+    }
+    final sorted = services.toList()..sort();
+    return sorted;
+  }
+
+  ServiceSnapshot? _parseServiceSnapshot(String output) {
+    for (final rawLine in const LineSplitter().convert(output)) {
+      final line = rawLine.trim();
+      if (!line.startsWith('service=')) {
+        continue;
+      }
+
+      String? name;
+      ServiceStatus status = ServiceStatus.unknown;
+      bool? enabled;
+      for (final part in line.split(';')) {
+        final separator = part.indexOf('=');
+        if (separator <= 0) {
+          continue;
+        }
+        final key = part.substring(0, separator);
+        final value = part.substring(separator + 1);
+        switch (key) {
+          case 'service':
+            name = value;
+          case 'status':
+            status = switch (value) {
+              'active' => ServiceStatus.active,
+              'inactive' => ServiceStatus.inactive,
+              'failed' => ServiceStatus.failed,
+              _ => ServiceStatus.unknown,
+            };
+          case 'enabled':
+            enabled = switch (value) {
+              'enabled' => true,
+              'disabled' => false,
+              _ => null,
+            };
+        }
+      }
+      if (name != null && name.isNotEmpty) {
+        return ServiceSnapshot(name: name, status: status, enabled: enabled);
+      }
+    }
+    return null;
+  }
+
+  OverviewSnapshot? _replaceOverviewService(OverviewSnapshot? snapshot, ServiceSnapshot service) {
+    if (snapshot == null) {
+      return null;
+    }
+    final services = [
+      for (final item in snapshot.services)
+        if (item.name != service.name) item,
+      service,
+    ];
+    services.sort((a, b) => managedServices.indexOf(a.name).compareTo(managedServices.indexOf(b.name)));
+    return OverviewSnapshot(
+      distribution: snapshot.distribution,
+      kernel: snapshot.kernel,
+      uptime: snapshot.uptime,
+      cpuPercent: snapshot.cpuPercent,
+      memoryPercent: snapshot.memoryPercent,
+      diskPercent: snapshot.diskPercent,
+      services: services,
+    );
+  }
 }
 
 String _staticSiteTemplate(bool enableLogs) {
@@ -504,7 +760,19 @@ ${enableLogs ? '''
 ''';
 }
 
-const _overviewCommand = r'''
+String _overviewCommandFor(List<String> services) {
+  final quotedServices = services.map(shellQuote).join(' ');
+  return '''
+$_overviewBaseCommand
+for svc in $quotedServices; do
+  status=\$(systemctl is-active "\$svc" 2>/dev/null || true)
+  enabled=\$(systemctl is-enabled "\$svc" 2>/dev/null || true)
+  printf "service=%s;status=%s;enabled=%s\\n" "\$svc" "\${status:-unknown}" "\${enabled:-unknown}"
+done
+''';
+}
+
+const _overviewBaseCommand = r'''
 set -e
 if command -v lsb_release >/dev/null 2>&1; then
   distribution=$(lsb_release -ds 2>/dev/null)
@@ -536,11 +804,6 @@ printf "uptime=%s\n" "$uptime_text"
 printf "cpu=%s\n" "$cpu"
 printf "memory=%s\n" "${memory:-0}"
 printf "disk=%s\n" "${disk:-0}"
-for svc in nginx mysql redis docker; do
-  status=$(systemctl is-active "$svc" 2>/dev/null || true)
-  enabled=$(systemctl is-enabled "$svc" 2>/dev/null || true)
-  printf "service=%s;status=%s;enabled=%s\n" "$svc" "${status:-unknown}" "${enabled:-unknown}"
-done
 ''';
 
 const _reverseProxyTemplate = '''

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../components/app_scope.dart';
+import '../../../components/app_shell.dart';
+import '../../../components/depot_content.dart';
 import '../../../cubits/app_controller.dart';
 
 class NginxView extends StatefulWidget {
@@ -34,162 +36,218 @@ class _NginxViewState extends State<NginxView> {
   @override
   Widget build(BuildContext context) {
     final controller = AppScope.of(context);
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Nginx 管理', style: Theme.of(context).textTheme.headlineSmall),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
+    final disabled = !controller.isConnected || controller.isRunning;
+    return DepotContentPage(
+      title: 'Nginx 管理',
+      subtitle: '管理站点启用状态、生成配置并写入远端 Nginx。',
+      actions: [
+        DepotStatusPill(
+          label: controller.isRunning ? '执行中' : (controller.isConnected ? '就绪' : '未连接'),
+          color: controller.isConnected ? depotAccent : depotYellow,
+        ),
+      ],
+      children: [
+        DepotPanel(
+          padding: const EdgeInsets.fromLTRB(28, 24, 28, 26),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              FilledButton.icon(
-                onPressed: !controller.isConnected || controller.isRunning ? null : controller.listNginxSites,
-                icon: const Icon(Icons.list),
-                label: const Text('刷新站点'),
-              ),
-              OutlinedButton.icon(
-                onPressed: !controller.isConnected || controller.isRunning ? null : controller.testNginx,
-                icon: const Icon(Icons.check),
-                label: const Text('语法检查'),
-              ),
-              OutlinedButton.icon(
-                onPressed: !controller.isConnected || controller.isRunning ? null : controller.reloadNginx,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Reload'),
+              const DepotSectionHeader(title: '站点操作', subtitle: '刷新站点、检查语法或 reload 服务。'),
+              const SizedBox(height: 18),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  FilledButton.icon(
+                    onPressed: disabled ? null : controller.listNginxSites,
+                    icon: const Icon(Icons.list, size: 18),
+                    label: const Text('刷新站点'),
+                    style: depotFilledButtonStyle(),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: disabled ? null : controller.testNginx,
+                    icon: const Icon(Icons.check, size: 18),
+                    label: const Text('语法检查'),
+                    style: depotOutlinedButtonStyle(),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: disabled ? null : controller.reloadNginx,
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text('Reload'),
+                    style: depotOutlinedButtonStyle(),
+                  ),
+                ],
               ),
             ],
           ),
-          const SizedBox(height: 24),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            crossAxisAlignment: WrapCrossAlignment.center,
+        ),
+        const SizedBox(height: 22),
+        DepotPanel(
+          padding: const EdgeInsets.fromLTRB(28, 24, 28, 26),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SizedBox(
-                width: 240,
-                child: TextField(
-                  controller: _siteController,
-                  decoration: const InputDecoration(
-                    labelText: '站点名',
-                    hintText: 'example.com',
-                    border: OutlineInputBorder(),
+              const DepotSectionHeader(title: '站点链接', subtitle: '操作 sites-available 与 sites-enabled。'),
+              const SizedBox(height: 18),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 300,
+                    child: TextField(
+                      controller: _siteController,
+                      style: const TextStyle(color: depotText, fontWeight: FontWeight.w700),
+                      decoration: depotInputDecoration('站点名', hint: 'example.com', icon: Icons.language),
+                    ),
                   ),
-                ),
-              ),
-              OutlinedButton.icon(
-                onPressed: !controller.isConnected || controller.isRunning
-                    ? null
-                    : () => controller.enableNginxSite(_siteController.text),
-                icon: const Icon(Icons.link),
-                label: const Text('启用'),
-              ),
-              OutlinedButton.icon(
-                onPressed: !controller.isConnected || controller.isRunning
-                    ? null
-                    : () => controller.disableNginxSite(_siteController.text),
-                icon: const Icon(Icons.link_off),
-                label: const Text('禁用'),
+                  OutlinedButton.icon(
+                    onPressed: disabled ? null : () => controller.enableNginxSite(_siteController.text),
+                    icon: const Icon(Icons.link, size: 18),
+                    label: const Text('启用'),
+                    style: depotOutlinedButtonStyle(),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: disabled ? null : () => controller.disableNginxSite(_siteController.text),
+                    icon: const Icon(Icons.link_off, size: 18),
+                    label: const Text('禁用'),
+                    style: depotOutlinedButtonStyle(),
+                  ),
+                ],
               ),
             ],
           ),
-          const Divider(height: 36),
-          Text('模板生成', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            crossAxisAlignment: WrapCrossAlignment.center,
+        ),
+        const SizedBox(height: 22),
+        DepotPanel(
+          padding: const EdgeInsets.fromLTRB(28, 24, 28, 26),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SizedBox(
-                width: 180,
-                child: DropdownButtonFormField<String>(
-                  initialValue: _templateId,
-                  decoration: const InputDecoration(labelText: '模板', border: OutlineInputBorder()),
-                  items: [
-                    for (final template in controller.nginxTemplates)
-                      DropdownMenuItem(value: template.id, child: Text(template.name)),
-                  ],
-                  onChanged: (value) => setState(() => _templateId = value ?? _templateId),
-                ),
-              ),
-              SizedBox(
-                width: 220,
-                child: TextField(
-                  controller: _domainController,
-                  decoration: const InputDecoration(labelText: '域名', border: OutlineInputBorder()),
-                ),
-              ),
-              if (_templateId == 'static_site')
-                SizedBox(
-                  width: 260,
-                  child: TextField(
-                    controller: _rootPathController,
-                    decoration: const InputDecoration(labelText: '网站根目录', border: OutlineInputBorder()),
+              const DepotSectionHeader(title: '模板生成', subtitle: '生成后可在下方预览区微调。'),
+              const SizedBox(height: 18),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 210,
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _templateId,
+                      dropdownColor: depotPanel,
+                      style: const TextStyle(color: depotText, fontWeight: FontWeight.w700),
+                      decoration: depotInputDecoration('模板', icon: Icons.description_outlined),
+                      items: [
+                        for (final template in controller.nginxTemplates)
+                          DropdownMenuItem(value: template.id, child: Text(template.name)),
+                      ],
+                      onChanged: (value) => setState(() => _templateId = value ?? _templateId),
+                    ),
                   ),
-                ),
-              if (_templateId == 'reverse_proxy') ...[
-                SizedBox(
-                  width: 180,
-                  child: TextField(
-                    controller: _upstreamHostController,
-                    decoration: const InputDecoration(labelText: '后端地址', border: OutlineInputBorder()),
+                  SizedBox(
+                    width: 260,
+                    child: TextField(
+                      controller: _domainController,
+                      style: const TextStyle(color: depotText, fontWeight: FontWeight.w700),
+                      decoration: depotInputDecoration('域名', hint: 'example.com', icon: Icons.public),
+                    ),
                   ),
-                ),
-                SizedBox(
-                  width: 140,
-                  child: TextField(
-                    controller: _upstreamPortController,
-                    decoration: const InputDecoration(labelText: '后端端口', border: OutlineInputBorder()),
-                  ),
-                ),
-              ],
-              if (_templateId == 'static_site')
-                FilterChip(
-                  selected: _enableLogs,
-                  onSelected: (value) => setState(() => _enableLogs = value),
-                  label: const Text('开启日志'),
-                ),
-              FilledButton.icon(
-                onPressed: () => _renderTemplate(controller),
-                icon: const Icon(Icons.description_outlined),
-                label: const Text('生成配置'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: TextField(
-              controller: _configController,
-              expands: true,
-              maxLines: null,
-              minLines: null,
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-              decoration: const InputDecoration(
-                labelText: '配置预览，可手动微调',
-                alignLabelWithHint: true,
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerRight,
-            child: FilledButton.icon(
-              onPressed: !controller.isConnected || controller.isRunning
-                  ? null
-                  : () => controller.writeNginxSite(
-                        siteName: _siteController.text,
-                        config: _configController.text,
+                  if (_templateId == 'static_site')
+                    SizedBox(
+                      width: 300,
+                      child: TextField(
+                        controller: _rootPathController,
+                        style: const TextStyle(color: depotText, fontWeight: FontWeight.w700),
+                        decoration: depotInputDecoration('网站根目录', hint: '/var/www/html', icon: Icons.folder_outlined),
                       ),
-              icon: const Icon(Icons.upload_file_outlined),
-              label: const Text('写入并 Reload'),
-            ),
+                    ),
+                  if (_templateId == 'reverse_proxy') ...[
+                    SizedBox(
+                      width: 220,
+                      child: TextField(
+                        controller: _upstreamHostController,
+                        style: const TextStyle(color: depotText, fontWeight: FontWeight.w700),
+                        decoration: depotInputDecoration('后端地址', hint: '127.0.0.1', icon: Icons.hub_outlined),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 160,
+                      child: TextField(
+                        controller: _upstreamPortController,
+                        style: const TextStyle(color: depotText, fontWeight: FontWeight.w700),
+                        decoration: depotInputDecoration('端口', hint: '3000', icon: Icons.tag),
+                      ),
+                    ),
+                  ],
+                  if (_templateId == 'static_site')
+                    FilterChip(
+                      selected: _enableLogs,
+                      onSelected: (value) => setState(() => _enableLogs = value),
+                      avatar: const Icon(Icons.notes, size: 16),
+                      label: const Text('开启日志'),
+                      selectedColor: depotAccent,
+                      backgroundColor: depotPanelAlt.withValues(alpha: 0.42),
+                      side: const BorderSide(color: depotLineDim),
+                      labelStyle: TextStyle(
+                        color: _enableLogs ? const Color(0xff06311f) : depotText,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  FilledButton.icon(
+                    onPressed: () => _renderTemplate(controller),
+                    icon: const Icon(Icons.description_outlined, size: 18),
+                    label: const Text('生成配置'),
+                    style: depotFilledButtonStyle(),
+                  ),
+                ],
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 22),
+        DepotPanel(
+          padding: const EdgeInsets.fromLTRB(28, 24, 28, 26),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              DepotSectionHeader(
+                title: '配置预览',
+                subtitle: '写入前可手动微调。',
+                trailing: FilledButton.icon(
+                  onPressed: disabled
+                      ? null
+                      : () => controller.writeNginxSite(
+                            siteName: _siteController.text,
+                            config: _configController.text,
+                          ),
+                  icon: const Icon(Icons.upload_file_outlined, size: 18),
+                  label: const Text('写入并 Reload'),
+                  style: depotFilledButtonStyle(),
+                ),
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                height: 360,
+                child: TextField(
+                  controller: _configController,
+                  expands: true,
+                  maxLines: null,
+                  minLines: null,
+                  style: const TextStyle(
+                    color: Color(0xffd6eadf),
+                    fontFamily: 'monospace',
+                    fontSize: 13,
+                    height: 1.45,
+                  ),
+                  decoration: depotInputDecoration('配置内容', icon: Icons.code).copyWith(alignLabelWithHint: true),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

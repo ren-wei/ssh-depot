@@ -93,6 +93,7 @@ class _OverviewPageState extends State<OverviewPage> {
                 flex: 2,
                 child: _ServiceStatusPanel(
                   isRunning: controller.isRunning,
+                  managedServices: controller.managedServices,
                   services: snapshot?.services ?? const [],
                   onServiceAction: controller.serviceAction,
                 ),
@@ -246,22 +247,22 @@ class _MetricCard extends StatelessWidget {
 class _ServiceStatusPanel extends StatelessWidget {
   const _ServiceStatusPanel({
     required this.isRunning,
+    required this.managedServices,
     required this.services,
     required this.onServiceAction,
   });
 
   final bool isRunning;
+  final List<String> managedServices;
   final List<ServiceSnapshot> services;
   final Future<void> Function(String service, String action) onServiceAction;
 
   @override
   Widget build(BuildContext context) {
     final visibleServices = services.isEmpty
-        ? const [
-            ServiceSnapshot(name: 'nginx', status: ServiceStatus.unknown, enabled: null),
-            ServiceSnapshot(name: 'mysql', status: ServiceStatus.unknown, enabled: null),
-            ServiceSnapshot(name: 'redis', status: ServiceStatus.unknown, enabled: null),
-            ServiceSnapshot(name: 'docker', status: ServiceStatus.unknown, enabled: null),
+        ? [
+            for (final service in managedServices)
+              ServiceSnapshot(name: service, status: ServiceStatus.unknown, enabled: null),
           ]
         : services;
     return _Panel(
@@ -272,8 +273,7 @@ class _ServiceStatusPanel extends StatelessWidget {
           Text('关键服务状态速览',
               style: Theme.of(context).textTheme.titleLarge?.copyWith(color: depotText, fontWeight: FontWeight.w900)),
           const SizedBox(height: 4),
-          Text('默认预置 nginx / mysql / redis / docker，可在设置页增删改',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: depotMuted)),
+          Text('默认服务 nginx，可在服务页手动添加更多服务', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: depotMuted)),
           const SizedBox(height: 18),
           const _ServiceHeader(),
           const SizedBox(height: 10),
