@@ -34,6 +34,10 @@ class ServiceSnapshot {
   final bool? enabled;
 }
 
+String serviceDisplayName(String service) {
+  return service.endsWith('.service') ? service.substring(0, service.length - '.service'.length) : service;
+}
+
 enum ServiceStatus {
   active,
   inactive,

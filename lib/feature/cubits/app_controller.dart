@@ -46,7 +46,7 @@ class AppController extends ChangeNotifier {
   final List<OperationRecord> _recentOperations = [];
 
   List<ServerProfile> servers = [];
-  List<String> managedServices = const ['nginx'];
+  List<String> managedServices = const ['nginx.service'];
   List<NginxSite> nginxSites = const [];
   List<NginxCertificateInfo> nginxCertificates = const [];
   List<NginxTemplateDefinition> customNginxTemplates = const [];
@@ -71,13 +71,13 @@ class AppController extends ChangeNotifier {
 
   Future<void> load() async {
     servers = await _serversStore.load();
-    managedServices = const ['nginx'];
+    managedServices = const ['nginx.service'];
     customNginxTemplates = await _nginxTemplatesStore.load();
     notifyListeners();
   }
 
   Future<void> addManagedService(String service) async {
-    final cleanService = service.trim();
+    final cleanService = _serviceUnitName(service);
     if (!_isSafeServiceName(cleanService)) {
       _setStatus('无效服务名');
       return;
@@ -89,7 +89,7 @@ class AppController extends ChangeNotifier {
 
     managedServices = [...managedServices, cleanService];
     await _saveManagedServices();
-    _setStatus('✓ 已添加服务 $cleanService');
+    _setStatus('✓ 已添加服务 ${serviceDisplayName(cleanService)}');
     if (isConnected) {
       await refreshServiceStatus(cleanService);
     }
@@ -101,7 +101,7 @@ class AppController extends ChangeNotifier {
         if (item != service) item,
     ];
     if (managedServices.isEmpty) {
-      managedServices = const ['nginx'];
+      managedServices = const ['nginx.service'];
     }
     serviceSnapshots = {
       for (final entry in serviceSnapshots.entries)
@@ -109,7 +109,7 @@ class AppController extends ChangeNotifier {
     };
     overviewSnapshot = _filterOverviewServices(overviewSnapshot);
     await _saveManagedServices();
-    _setStatus('✓ 已移除服务 $service');
+    _setStatus('✓ 已移除服务 ${serviceDisplayName(service)}');
   }
 
   Future<List<String>> searchRemoteServices() async {
@@ -145,7 +145,8 @@ class AppController extends ChangeNotifier {
       _setStatus('请先连接服务器');
       return;
     }
-    if (!_isSafeServiceName(service)) {
+    final serviceUnit = _serviceUnitName(service);
+    if (!_isSafeServiceName(serviceUnit)) {
       _setStatus('无效服务名');
       return;
     }
@@ -153,10 +154,10 @@ class AppController extends ChangeNotifier {
     final output = StringBuffer();
     final exitCode = await _runOnTarget(
       target: currentTarget,
-      summary: '获取 $service 状态',
-      command: 'status=\$(systemctl is-active ${shellQuote(service)} 2>/dev/null || true); '
-          'enabled=\$(systemctl is-enabled ${shellQuote(service)} 2>/dev/null || true); '
-          'printf "service=%s;status=%s;enabled=%s\\n" ${shellQuote(service)} "\${status:-unknown}" "\${enabled:-unknown}"',
+      summary: '获取 ${serviceDisplayName(serviceUnit)} 状态',
+      command: 'status=\$(systemctl is-active ${shellQuote(serviceUnit)} 2>/dev/null || true); '
+          'enabled=\$(systemctl is-enabled ${shellQuote(serviceUnit)} 2>/dev/null || true); '
+          'printf "service=%s;status=%s;enabled=%s\\n" ${shellQuote(serviceUnit)} "\${status:-unknown}" "\${enabled:-unknown}"',
       timeout: const Duration(seconds: 12),
       onOutput: (chunk) {
         if (!chunk.isStdErr) {
@@ -254,12 +255,12 @@ class AppController extends ChangeNotifier {
     );
     final exitCode = await _openMasterAndVerify(nextTarget);
     if (exitCode == 0) {
-      managedServices = await _servicePreferencesStore.load(nextTarget.address);
+      managedServices = _normalizeManagedServices(await _servicePreferencesStore.load(nextTarget.address));
       target = nextTarget;
       await saveServer(_profileForSuccessfulConnect(cleanHost, cleanUser));
       _setStatus('✓ $cleanUser@$cleanHost 已连接');
     } else {
-      managedServices = const ['nginx'];
+      managedServices = const ['nginx.service'];
     }
   }
 
@@ -344,24 +345,44 @@ class AppController extends ChangeNotifier {
     );
   }
 
-  Future<void> serviceAction(String service, String action) {
-    if (!_isSafeServiceName(service)) {
+  Future<void> serviceAction(String service, String action) async {
+    final currentTarget = target;
+    if (currentTarget == null) {
+      _setStatus('请先连接服务器');
+      return;
+    }
+    final serviceUnit = _serviceUnitName(service);
+    if (!_isSafeServiceName(serviceUnit)) {
       _setStatus('无效服务名');
-      return Future.value();
+      return;
+    }
+    if (action == 'logs') {
+      await fetchServiceLogs(serviceUnit);
+      return;
     }
     final command = switch (action) {
-      'start' => 'systemctl start ${shellQuote(service)}',
-      'stop' => 'systemctl stop ${shellQuote(service)}',
-      'restart' => 'systemctl restart ${shellQuote(service)}',
-      'status' => 'systemctl status ${shellQuote(service)} --no-pager',
-      'logs' => 'journalctl -u ${shellQuote(service)} --no-pager -n 50',
+      'start' => 'systemctl start ${shellQuote(serviceUnit)}',
+      'stop' => 'systemctl stop ${shellQuote(serviceUnit)}',
+      'restart' => 'systemctl restart ${shellQuote(serviceUnit)}',
+      'status' => 'systemctl status ${shellQuote(serviceUnit)} --no-pager',
       _ => null,
     };
     if (command == null) {
       _setStatus('未知服务操作');
-      return Future.value();
+      return;
     }
-    return runRemote(summary: '$service $action', command: command);
+    final exitCode = await _runOnTarget(
+      target: currentTarget,
+      summary: '${serviceDisplayName(serviceUnit)} $action',
+      command: command,
+    );
+    if (action == 'start' || action == 'stop' || action == 'restart') {
+      if (exitCode == 0) {
+        _applyExpectedServiceStatus(serviceUnit, action);
+      }
+      await refreshServiceStatus(serviceUnit);
+      await fetchServiceLogs(serviceUnit);
+    }
   }
 
   Future<void> fetchServiceLogs(String service) async {
@@ -370,19 +391,20 @@ class AppController extends ChangeNotifier {
       _setStatus('请先连接服务器');
       return;
     }
-    if (!_isSafeServiceName(service)) {
+    final serviceUnit = _serviceUnitName(service);
+    if (!_isSafeServiceName(serviceUnit)) {
       _setStatus('无效服务名');
       return;
     }
-    serviceLogsService = service;
+    serviceLogsService = serviceUnit;
     serviceLogsOutput = '';
     notifyListeners();
 
     final output = StringBuffer();
     final exitCode = await _runOnTarget(
       target: currentTarget,
-      summary: '查看 $service 日志',
-      command: 'journalctl -u ${shellQuote(service)} --no-pager -n 80',
+      summary: '查看 ${serviceDisplayName(serviceUnit)} 日志',
+      command: _serviceLogsCommand(serviceUnit),
       onOutput: (chunk) {
         output.write(chunk.text);
         serviceLogsOutput = output.toString();
@@ -394,6 +416,19 @@ class AppController extends ChangeNotifier {
       serviceLogsOutput = exitCode == 0 ? '暂无日志输出' : '查看日志失败';
       notifyListeners();
     }
+  }
+
+  String _serviceLogsCommand(String serviceUnit) {
+    final unit = shellQuote(serviceUnit);
+    if (serviceDisplayName(serviceUnit) != 'nginx') {
+      return 'journalctl -u $unit --no-pager -n 80';
+    }
+    return 'echo "[systemd journal]"; '
+        'journalctl -u $unit --no-pager -n 80; '
+        'echo; echo "[nginx error.log]"; '
+        'if [ -f /var/log/nginx/error.log ]; then tail -n 80 /var/log/nginx/error.log; else echo "未找到 /var/log/nginx/error.log"; fi; '
+        'echo; echo "[nginx access.log]"; '
+        'if [ -f /var/log/nginx/access.log ]; then tail -n 80 /var/log/nginx/access.log; else echo "未找到 /var/log/nginx/access.log"; fi';
   }
 
   Future<void> refreshOverview() async {
@@ -967,6 +1002,21 @@ class AppController extends ChangeNotifier {
     return RegExp(r'^[a-zA-Z0-9_.@:-]+$').hasMatch(value);
   }
 
+  String _serviceUnitName(String service) {
+    final cleanService = service.trim();
+    if (cleanService.isEmpty || cleanService.endsWith('.service')) {
+      return cleanService;
+    }
+    return '$cleanService.service';
+  }
+
+  List<String> _normalizeManagedServices(List<String> services) {
+    final normalized = [
+      for (final service in services) _serviceUnitName(service),
+    ].where(_isSafeServiceName).toSet().toList();
+    return normalized.isEmpty ? const ['nginx.service'] : normalized;
+  }
+
   bool _isSafeSiteName(String value) {
     return RegExp(r'^[a-zA-Z0-9][a-zA-Z0-9._-]*$').hasMatch(value);
   }
@@ -1044,9 +1094,8 @@ class AppController extends ChangeNotifier {
       if (!unit.endsWith('.service')) {
         continue;
       }
-      final service = unit.substring(0, unit.length - '.service'.length);
-      if (_isSafeServiceName(service)) {
-        services.add(service);
+      if (_isSafeServiceName(unit)) {
+        services.add(unit);
       }
     }
     final sorted = services.toList()..sort();
@@ -1114,6 +1163,23 @@ class AppController extends ChangeNotifier {
       diskPercent: snapshot.diskPercent,
       services: services,
     );
+  }
+
+  void _applyExpectedServiceStatus(String serviceUnit, String action) {
+    final previous = serviceSnapshots[serviceUnit];
+    final status = switch (action) {
+      'stop' => ServiceStatus.inactive,
+      'start' || 'restart' => ServiceStatus.active,
+      _ => previous?.status ?? ServiceStatus.unknown,
+    };
+    final snapshot = ServiceSnapshot(
+      name: serviceUnit,
+      status: status,
+      enabled: previous?.enabled,
+    );
+    serviceSnapshots = {...serviceSnapshots, serviceUnit: snapshot};
+    overviewSnapshot = _replaceOverviewService(overviewSnapshot, snapshot);
+    notifyListeners();
   }
 
   List<NginxSite> _parseNginxSites(String output) {

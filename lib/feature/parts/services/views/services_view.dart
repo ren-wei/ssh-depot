@@ -63,8 +63,9 @@ class _ServicesViewState extends State<ServicesView> {
                 child: Row(
                   children: [
                     Expanded(flex: 3, child: Text('服务', style: depotMutedText(context))),
-                    Expanded(flex: 2, child: Text('状态', style: depotMutedText(context))),
-                    Expanded(flex: 5, child: Text('操作', textAlign: TextAlign.right, style: depotMutedText(context))),
+                    Expanded(flex: 2, child: Text('运行', style: depotMutedText(context))),
+                    Expanded(flex: 2, child: Text('自启', style: depotMutedText(context))),
+                    Expanded(flex: 4, child: Text('操作', textAlign: TextAlign.right, style: depotMutedText(context))),
                   ],
                 ),
               ),
@@ -74,9 +75,9 @@ class _ServicesViewState extends State<ServicesView> {
                   service: service,
                   snapshot: serviceSnapshots[service],
                   disabled: disabled,
-                  onStart: () => controller.serviceAction(service, 'start'),
-                  onStop: () => controller.serviceAction(service, 'stop'),
-                  onRestart: () => controller.serviceAction(service, 'restart'),
+                  onStart: () => _confirmServiceAction(controller, service, 'start'),
+                  onStop: () => _confirmServiceAction(controller, service, 'stop'),
+                  onRestart: () => _confirmServiceAction(controller, service, 'restart'),
                   onLogs: () => controller.fetchServiceLogs(service),
                   onRemove: () => _confirmRemoveService(controller, service),
                 ),
@@ -118,7 +119,7 @@ class _ServicesViewState extends State<ServicesView> {
             style: Theme.of(context).textTheme.titleLarge?.copyWith(color: depotText, fontWeight: FontWeight.w900),
           ),
           content: Text(
-            '确认从服务管理中移除 $service？',
+            '确认从服务管理中移除 ${serviceDisplayName(service)}？',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: depotMuted, fontWeight: FontWeight.w700),
           ),
           actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
@@ -139,6 +140,53 @@ class _ServicesViewState extends State<ServicesView> {
     );
     if (confirmed == true) {
       await controller.removeManagedService(service);
+    }
+  }
+
+  Future<void> _confirmServiceAction(AppController controller, String service, String action) async {
+    final actionLabel = switch (action) {
+      'start' => '启动',
+      'stop' => '停止',
+      'restart' => '重启',
+      _ => '操作',
+    };
+    final serviceLabel = serviceDisplayName(service);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: depotPanel,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+            side: const BorderSide(color: depotLine),
+          ),
+          title: Text(
+            '$actionLabel服务',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(color: depotText, fontWeight: FontWeight.w900),
+          ),
+          content: Text(
+            '确认$actionLabel $serviceLabel？',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: depotMuted, fontWeight: FontWeight.w700),
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+          actions: [
+            OutlinedButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              style: depotOutlinedButtonStyle(),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: depotFilledButtonStyle(),
+              child: const Text('确认'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed == true) {
+      await controller.serviceAction(service, action);
     }
   }
 }
@@ -239,7 +287,7 @@ class _AddServiceDialogState extends State<_AddServiceDialog> {
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Text(
-                                  service,
+                                  serviceDisplayName(service),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -323,6 +371,9 @@ class _ServiceControlRow extends StatelessWidget {
       ServiceStatus.inactive => depotMuted,
       ServiceStatus.unknown => depotYellow,
     };
+    final enabled = snapshot?.enabled;
+    final enabledColor = enabled == true ? depotBlue : depotMuted;
+    final enabledLabel = enabled == null ? '未知' : (enabled ? '自启' : '未自启');
     return DepotRow(
       child: Row(
         children: [
@@ -334,7 +385,7 @@ class _ServiceControlRow extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    service,
+                    serviceDisplayName(service),
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           color: depotText,
@@ -353,7 +404,14 @@ class _ServiceControlRow extends StatelessWidget {
             ),
           ),
           Expanded(
-            flex: 5,
+            flex: 2,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: _InlineState(label: enabledLabel, color: enabledColor),
+            ),
+          ),
+          Expanded(
+            flex: 4,
             child: Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -435,7 +493,7 @@ class _ServiceLogsPanelState extends State<_ServiceLogsPanel> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    widget.service == null ? '服务日志' : '${widget.service} 日志',
+                    widget.service == null ? '服务日志' : '${serviceDisplayName(widget.service!)} 日志',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -493,11 +551,12 @@ class _ServiceLogsPanelState extends State<_ServiceLogsPanel> {
 
   Future<void> _copyForAi(BuildContext context) async {
     final service = widget.service?.trim().isEmpty == false ? widget.service!.trim() : '未知服务';
+    final serviceLabel = serviceDisplayName(service);
     final output = widget.output.trimRight().isEmpty ? '暂无日志输出' : widget.output.trimRight();
     final content = '''
 请分析下面这次 ssh-depot 服务日志输出，定位问题原因并给出修复建议：
 
-服务：$service
+服务：$serviceLabel
 命令：journalctl -u $service --no-pager -n 80
 
 ```text
@@ -509,6 +568,34 @@ $output
       return;
     }
     showDepotSnackBar(context, '已复制服务日志和分析提示词');
+  }
+}
+
+class _InlineState extends StatelessWidget {
+  const _InlineState({
+    required this.label,
+    required this.color,
+  });
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        DepotDot(color: color, size: 10),
+        const SizedBox(width: 8),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: depotText,
+                fontWeight: FontWeight.w800,
+              ),
+        ),
+      ],
+    );
   }
 }
 

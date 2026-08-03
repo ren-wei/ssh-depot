@@ -12,12 +12,12 @@ class ServicePreferencesStore {
   Future<List<String>> load(String target) async {
     final file = File(_paths.preferencesFile);
     if (!await file.exists()) {
-      return const ['nginx'];
+      return const ['nginx.service'];
     }
 
     final parsed = loadYaml(await file.readAsString());
     if (parsed is! YamlMap) {
-      return const ['nginx'];
+      return const ['nginx.service'];
     }
 
     final servicesByTarget = parsed['servicesByTarget'];
@@ -69,7 +69,7 @@ class ServicePreferencesStore {
       for (final service in services) service.toString(),
     ]);
 
-    return values.isEmpty ? const ['nginx'] : values;
+    return values.isEmpty ? const ['nginx.service'] : values;
   }
 
   List<String> _normalizeServices(List<String> services) {
@@ -80,7 +80,7 @@ class ServicePreferencesStore {
 
   List<String> _normalizedOrDefault(List<String> services) {
     final values = _normalizeServices(services);
-    return values.isEmpty ? const ['nginx'] : values;
+    return values.isEmpty ? const ['nginx.service'] : values;
   }
 
   String _encodeServicesByTarget(Map<String, List<String>> servicesByTarget) {

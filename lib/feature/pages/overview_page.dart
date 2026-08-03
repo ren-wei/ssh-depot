@@ -372,7 +372,7 @@ class _ServiceRow extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(service.name,
+                    Text(serviceDisplayName(service.name),
                         style: Theme.of(context)
                             .textTheme
                             .titleMedium

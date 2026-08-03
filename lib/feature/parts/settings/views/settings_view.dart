@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../classes/overview_snapshot.dart';
 import '../../../classes/server_profile.dart';
 import '../../../components/app_scope.dart';
 import '../../../components/app_shell.dart';
@@ -141,7 +142,7 @@ class _SettingsViewState extends State<SettingsView> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        controller.managedServices.join(' / '),
+                        controller.managedServices.map(serviceDisplayName).join(' / '),
                         style: Theme.of(context)
                             .textTheme
                             .bodyMedium
