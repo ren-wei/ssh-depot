@@ -268,7 +268,7 @@ class AppController extends ChangeNotifier {
     return _runOnTarget(
       target: nextTarget,
       summary: '测试连接',
-      command: 'echo __myctl_ok__',
+      command: 'echo __ssh-depot_ok__',
       timeout: const Duration(seconds: 12),
     );
   }
@@ -286,12 +286,12 @@ class AppController extends ChangeNotifier {
           onOutput: _appendOutput,
         );
         if (exitCode == 0) {
-          _appendTerminal('\n\$ ${_displaySshCommand('echo __myctl_ok__')}\n');
+          _appendTerminal('\n\$ ${_displaySshCommand('echo __ssh-depot_ok__')}\n');
           exitCode = await _sshExecutor.run(
             target: nextTarget,
             command: const SshCommand(
               summary: '验证 SSH 连接',
-              command: 'echo __myctl_ok__',
+              command: 'echo __ssh-depot_ok__',
               timeout: Duration(seconds: 12),
             ),
             onOutput: _appendOutput,
@@ -513,7 +513,7 @@ class AppController extends ChangeNotifier {
     final targetFile = '/etc/nginx/sites-available/$cleanSite';
     final command = 'set -e; '
         'target=${shellQuote(targetFile)}; '
-        'backup="\$target.myctl.bak.\$(date +%Y%m%d%H%M%S)"; '
+        'backup="\$target.ssh-depot.bak.\$(date +%Y%m%d%H%M%S)"; '
         'if [ -f "\$target" ]; then cp "\$target" "\$backup"; fi; '
         'printf %s ${shellQuote(encoded)} | base64 -d > "\$target"; '
         'if ! nginx -t; then '
@@ -566,7 +566,7 @@ class AppController extends ChangeNotifier {
     final targetPrefix = _nginxSiteTargetPrefix(cleanSite);
     final command = 'set -e; '
         '$targetPrefix '
-        'backup="\$target.myctl.test.\$(date +%Y%m%d%H%M%S)"; '
+        'backup="\$target.ssh-depot.test.\$(date +%Y%m%d%H%M%S)"; '
         'had_original=0; '
         'if [ -f "\$target" ]; then had_original=1; cp "\$target" "\$backup"; fi; '
         'restore() { if [ "\$had_original" = "1" ]; then cp "\$backup" "\$target"; else rm -f "\$target"; fi; rm -f "\$backup"; }; '
@@ -597,7 +597,7 @@ class AppController extends ChangeNotifier {
     final targetPrefix = _nginxSiteTargetPrefix(cleanSite);
     final command = 'set -e; '
         '$targetPrefix '
-        'backup="\$target.myctl.bak.\$(date +%Y%m%d%H%M%S)"; '
+        'backup="\$target.ssh-depot.bak.\$(date +%Y%m%d%H%M%S)"; '
         'if [ -f "\$target" ]; then cp "\$target" "\$backup"; fi; '
         'printf %s ${shellQuote(encoded)} | base64 -d > "\$target"; '
         'if ! nginx -t; then '

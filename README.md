@@ -6,6 +6,8 @@
 
 本项目固定 Flutter 版本见 [`.flutter-version`](.flutter-version)。开发环境可执行 `scripts/install.sh` 自动识别 Linux / macOS 并安装依赖，将对应版本 Flutter 安装到 `/usr/local/src/flutter`。
 
+Linux 桌面运行时如果中文显示为方框，说明系统缺少 CJK 字体；执行 `sudo apt-get install -y fonts-noto-cjk && fc-cache -fv` 后重启应用。
+
 ---
 ## 1. 产品概述
 
@@ -33,7 +35,7 @@
 | UI 框架 | Flutter（桌面端） | 跨平台、单二进制分发、体验好 |
 | SSH 执行 | 本机 `ssh` 命令（`Process.start`） | 复用系统 SSH，零额外依赖 |
 | 终端渲染 | xterm.dart | 完整 ANSI 支持，进度条/颜色/光标全搞定 |
-| 配置存储 | 本地 YAML 文件（`~/.myctl/`） | 简单、可移植、不依赖服务端 |
+| 配置存储 | 本地 YAML 文件（`~/.ssh-depot/`） | 简单、可移植、不依赖服务端 |
 | 目标系统 | Debian / Ubuntu（apt + systemctl） | 第一版只支持 Debian 系 |
 
 ---
@@ -49,7 +51,7 @@
   - `BatchMode=yes`（禁止交互式密码输入）
   - `ConnectTimeout=10`
   - 自动继承 `~/.ssh/config` 中的端口、密钥路径、代理等配置
-- 连接测试：`ssh root@host "echo __myctl_ok__"`，返回包含标记字符串即视为成功
+- 连接测试：`ssh root@host "echo __ssh-depot_ok__"`，返回包含标记字符串即视为成功
 
 ### 2.2 底部终端行为规则
 
@@ -70,7 +72,7 @@
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  myctl · root@1.2.3.4  [断开]                        │
+│  ssh-depot · root@1.2.3.4  [断开]                    │
 ├──────────────┬───────────────────────────────────────┤
 │              │                                       │
 │  左侧 tab    │  右侧内容区（随 tab 切换）             │
@@ -208,7 +210,7 @@ MVP 先内置静态网站和反向代理两个模板；SSL 反向代理和 PHP �
 
 **模板存储：**
 ```
-~/.myctl/templates/
+~/.ssh-depot/templates/
 ├── static_site.nginx       # 模板内容（含 {{variable}} 占位符）
 ├── static_site.yaml        # 模板元数据（名称、描述、变量定义）
 ├── reverse_proxy.nginx
@@ -323,7 +325,7 @@ MVP 先内置静态网站和反向代理两个模板；SSL 反向代理和 PHP �
 - 已保存服务器列表（名称、host、user、备注）
 - 新增/编辑/删除
 - 连接测试按钮
-- 存储位置：`~/.myctl/servers.yaml`
+- 存储位置：`~/.ssh-depot/servers.yaml`
 
 #### 服务列表配置
 - 添加/删除/排序关注的服务
@@ -350,7 +352,7 @@ MVP 先内置静态网站和反向代理两个模板；SSL 反向代理和 PHP �
 | 部署 | 单目录分发，双击运行；客户端除系统 `ssh` 外不引入额外运行时依赖 |
 | 配置 | 复用系统 `~/.ssh/*`，不管理密钥 |
 | 网络 | 仅出 SSH 22 端口，不监听任何端口 |
-| 数据 | 全部存本地 `~/.myctl/`，不上传任何数据 |
+| 数据 | 全部存本地 `~/.ssh-depot/`，不上传任何数据 |
 | 权限 | MVP 默认使用 root SSH 登录；不处理 sudo、不弹 sudo 密码、不适配 sudoers |
 | 远端依赖 | 目标机需具备对应模块所需命令：`apt`、`systemctl`、`nginx`、`journalctl` 等 |
 | 容错 | SSH 断开有明确提示；操作超时可控；取消操作可杀进程 |

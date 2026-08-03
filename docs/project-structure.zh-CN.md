@@ -101,7 +101,7 @@ lib/
 
 适合放入 `feature`：
 
-- 产品级配置，例如 `~/.myctl/` 路径、默认服务列表、模板目录。
+- 产品级配置，例如 `~/.ssh-depot/` 路径、默认服务列表、模板目录。
 - 产品级组件，例如服务器选择器、命令状态栏、确认弹窗。
 - 产品级 DTO，例如 `ServerProfile`、`CommandResult`、`OperationSummary`。
 - 外部工具封装，例如 SSH 执行器、本地配置仓库、模板渲染器。
@@ -119,7 +119,7 @@ lib/feature/packages/
 │   ├── ssh_executor.dart     # 统一执行远程命令
 │   └── ssh_command.dart      # 命令摘要、超时、stdin 等参数
 ├── local_config/
-│   ├── config_paths.dart     # ~/.myctl/ 路径定义
+│   ├── config_paths.dart     # ~/.ssh-depot/ 路径定义
 │   ├── servers_store.dart    # servers.yaml 读写
 │   └── preferences_store.dart
 ├── command_runner/

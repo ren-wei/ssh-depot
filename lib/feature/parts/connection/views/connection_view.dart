@@ -610,7 +610,7 @@ class _InfoBox extends StatelessWidget {
             const SizedBox(height: 6),
             const Text('- 不支持密码登录'),
             const Text('- 自动继承 ~/.ssh/config'),
-            const Text('- 连接测试会执行 root@host echo __myctl_ok__'),
+            const Text('- 连接测试会执行 root@host echo __ssh-depot_ok__'),
             const Text('- 连接成功后进入概览页'),
           ],
         ),
