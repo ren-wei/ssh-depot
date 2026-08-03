@@ -222,18 +222,20 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<bool> testConnection(String host) async {
+  Future<bool> testConnection(String host, {String user = 'root'}) async {
     final cleanHost = host.trim();
+    final cleanUser = user.trim().isEmpty ? 'root' : user.trim();
     if (cleanHost.isEmpty) {
       _setStatus('请输入 Host');
       return false;
     }
-    final exitCode = await _runConnectionTest(cleanHost);
+    final exitCode = await _runConnectionTest(cleanHost, cleanUser);
     return exitCode == 0;
   }
 
-  Future<void> connect(String host) async {
+  Future<void> connect(String host, {String user = 'root'}) async {
     final cleanHost = host.trim();
+    final cleanUser = user.trim().isEmpty ? 'root' : user.trim();
     if (cleanHost.isEmpty) {
       _setStatus('请输入 Host');
       return;
@@ -244,27 +246,31 @@ class AppController extends ChangeNotifier {
     }
     target = null;
     _clearConnectionRuntimeCache();
-    final nextTarget = SshTarget(host: cleanHost, controlPath: _controlPathFor(cleanHost));
+    final nextTarget = SshTarget(
+      host: cleanHost,
+      user: cleanUser,
+      controlPath: _controlPathFor(cleanHost, cleanUser),
+    );
     final exitCode = await _openMasterAndVerify(nextTarget);
     if (exitCode == 0) {
       managedServices = await _servicePreferencesStore.load(nextTarget.address);
       target = nextTarget;
-      await saveServer(_profileForSuccessfulConnect(cleanHost));
-      _setStatus('✓ root@$cleanHost 已连接');
+      await saveServer(_profileForSuccessfulConnect(cleanHost, cleanUser));
+      _setStatus('✓ $cleanUser@$cleanHost 已连接');
     } else {
       managedServices = const ['nginx'];
     }
   }
 
-  ServerProfile _profileForSuccessfulConnect(String host) {
+  ServerProfile _profileForSuccessfulConnect(String host, String user) {
     return servers.firstWhere(
-      (server) => server.host == host && server.user == 'root',
-      orElse: () => ServerProfile(name: host, host: host),
+      (server) => server.host == host && server.user == user,
+      orElse: () => ServerProfile(name: host, host: host, user: user),
     );
   }
 
-  Future<int> _runConnectionTest(String cleanHost) {
-    final nextTarget = SshTarget(host: cleanHost);
+  Future<int> _runConnectionTest(String cleanHost, String cleanUser) {
+    final nextTarget = SshTarget(host: cleanHost, user: cleanUser);
     return _runOnTarget(
       target: nextTarget,
       summary: '测试连接',
@@ -863,8 +869,7 @@ class AppController extends ChangeNotifier {
         .catchError((Object _) => 255);
   }
 
-  String _controlPathFor(String host) {
-    final user = 'root';
+  String _controlPathFor(String host, String user) {
     final identity = '$user@$host';
     return '/tmp/ssh-depot-${_stableHash(identity)}.sock';
   }

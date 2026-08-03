@@ -13,7 +13,7 @@ Linux 桌面运行时如果中文显示为方框，说明系统缺少 CJK 字体
 
 ### 1.1 一句话定义
 
-一个本机运行的 Flutter 桌面工具，通过 SSH 以 root 身份操作远程 Linux 服务器，把常用运维操作做成可视化界面；远端无需部署 ssh-depot 服务端组件或常驻进程。
+一个本机运行的 Flutter 桌面工具，通过 SSH 操作远程 Linux 服务器，把常用运维操作做成可视化界面；用户名默认填充为 `root`，也可按服务器实际配置改为其他用户；远端无需部署 ssh-depot 服务端组件或常驻进程。
 
 ### 1.2 核心价值
 
@@ -44,14 +44,14 @@ Linux 桌面运行时如果中文显示为方框，说明系统缺少 CJK 字体
 
 ### 2.1 连接配置
 
-- 用户输入：**用户名 + 地址**（MVP 默认用户名为 `root`，host 可以是 IP 或 `~/.ssh/config` 里的 Host 别名）
+- 用户输入：**用户名 + 地址**（用户名默认值为 `root`，可改为其他 SSH 用户；host 可以是 IP 或 `~/.ssh/config` 里的 Host 别名）
 - 认证方式：复用本机 SSH 密钥认证，不支持密码登录
-- MVP 权限模型：默认使用 `root@host` 执行所有命令，不处理 sudo、不弹 sudo 密码、不适配 sudoers
+- MVP 权限模型：使用用户填写的 `user@host` 执行所有命令；默认用户是 `root`。MVP 不处理 sudo、不弹 sudo 密码、不适配 sudoers，远端命令能否成功取决于该 SSH 用户本身的系统权限
 - SSH 参数：
   - `BatchMode=yes`（禁止交互式密码输入）
   - `ConnectTimeout=10`
   - 自动继承 `~/.ssh/config` 中的端口、密钥路径、代理等配置
-- 连接测试：`ssh root@host "echo __ssh-depot_ok__"`，返回包含标记字符串即视为成功
+- 连接测试：`ssh user@host "echo __ssh-depot_ok__"`，返回包含标记字符串即视为成功
 
 ### 2.2 底部终端行为规则
 
@@ -353,7 +353,7 @@ MVP 先内置静态网站和反向代理两个模板；SSL 反向代理和 PHP �
 | 配置 | 复用系统 `~/.ssh/*`，不管理密钥 |
 | 网络 | 仅出 SSH 22 端口，不监听任何端口 |
 | 数据 | 全部存本地 `~/.ssh-depot/`，不上传任何数据 |
-| 权限 | MVP 默认使用 root SSH 登录；不处理 sudo、不弹 sudo 密码、不适配 sudoers |
+| 权限 | MVP 默认用户名为 root，但可改为其他 SSH 用户；不处理 sudo、不弹 sudo 密码、不适配 sudoers |
 | 远端依赖 | 目标机需具备对应模块所需命令：`apt`、`systemctl`、`nginx`、`journalctl` 等 |
 | 容错 | SSH 断开有明确提示；操作超时可控；取消操作可杀进程 |
 | 性能 | 终端输出流畅，大量输出不卡 UI（xterm.dart 负责渲染优化） |
@@ -366,7 +366,7 @@ MVP 先内置静态网站和反向代理两个模板；SSL 反向代理和 PHP �
 
 | 功能 | 说明 |
 |------|------|
-| SSH 连接（root + 地址） | 测试连通性，复用系统 SSH 配置；MVP 不处理 sudo |
+| SSH 连接（用户名 + 地址） | 用户名默认 root 且可编辑，测试连通性，复用系统 SSH 配置；MVP 不处理 sudo |
 | 软件包安装/卸载 | apt install/remove + 终端输出 |
 | 服务启停/重启/状态/日志 | 预配置服务列表 |
 | Nginx 站点列表 + 启用/禁用 | 读取 sites-available/enabled |

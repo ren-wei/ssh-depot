@@ -1,11 +1,15 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../assets/connection_asset.dart';
 import '../../../classes/server_profile.dart';
 import '../../../components/app_scope.dart';
 import '../../../components/depot_scrollbar.dart';
 import '../../../cubits/app_controller.dart';
+import '../../../utils/shell_quote.dart';
 
 const _bg = Color(0xff04130d);
 const _panel = Color(0xff0b2418);
@@ -23,10 +27,28 @@ class ConnectionView extends StatelessWidget {
   Widget build(BuildContext context) {
     return const Scaffold(
       backgroundColor: _bg,
-      body: SafeArea(
-        child: Center(
-          child: _ConnectionScroll(),
-        ),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              image: DecorationImage(
+                image: ConnectionBackgroundImage(),
+                fit: BoxFit.cover,
+              ),
+            ),
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: Color(0x66000000),
+            ),
+          ),
+          SafeArea(
+            child: Center(
+              child: _ConnectionScroll(),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -71,12 +93,16 @@ class _ConnectionContent extends StatefulWidget {
 class _ConnectionContentState extends State<_ConnectionContent> {
   final _nameController = TextEditingController();
   final _hostController = TextEditingController();
+  final _userController = TextEditingController(text: 'root');
   String? _hostError;
+  String? _userError;
+  bool? _lastTestSucceeded;
 
   @override
   void dispose() {
     _nameController.dispose();
     _hostController.dispose();
+    _userController.dispose();
     super.dispose();
   }
 
@@ -125,6 +151,7 @@ class _ConnectionContentState extends State<_ConnectionContent> {
                   onSelect: _fillServer,
                   onCreate: _clearForm,
                   onConnect: (server) => _quickLogin(controller, server),
+                  onCopyAuthorizationCommand: _copyAuthorizationCommand,
                 ),
               ),
               SizedBox(width: compact ? 0 : 20, height: compact ? 20 : 0),
@@ -132,26 +159,34 @@ class _ConnectionContentState extends State<_ConnectionContent> {
                 _ConnectionPanel(
                   nameController: _nameController,
                   hostController: _hostController,
+                  userController: _userController,
                   isRunning: controller.isRunning,
+                  testSucceeded: _lastTestSucceeded,
                   hostError: _hostError,
+                  userError: _userError,
                   terminalText: controller.terminalLines.join(),
                   onSubmitted: () => _login(controller),
                   onTest: () => _testConnection(controller),
                   onConnect: () => _login(controller),
                   onSave: () => _save(controller),
+                  onCopyTroubleshootCommand: _copyTroubleshootCommand,
                 )
               else
                 Expanded(
                   child: _ConnectionPanel(
                     nameController: _nameController,
                     hostController: _hostController,
+                    userController: _userController,
                     isRunning: controller.isRunning,
+                    testSucceeded: _lastTestSucceeded,
                     hostError: _hostError,
+                    userError: _userError,
                     terminalText: controller.terminalLines.join(),
                     onSubmitted: () => _login(controller),
                     onTest: () => _testConnection(controller),
                     onConnect: () => _login(controller),
                     onSave: () => _save(controller),
+                    onCopyTroubleshootCommand: _copyTroubleshootCommand,
                   ),
                 ),
             ],
@@ -163,10 +198,16 @@ class _ConnectionContentState extends State<_ConnectionContent> {
 
   Future<void> _testConnection(AppController controller) async {
     final host = _validHostOrNull();
-    if (host == null) {
+    final user = _validUserOrNull();
+    if (host == null || user == null) {
       return;
     }
-    await controller.testConnection(host);
+    setState(() => _lastTestSucceeded = null);
+    final succeeded = await controller.testConnection(host, user: user);
+    if (!mounted) {
+      return;
+    }
+    setState(() => _lastTestSucceeded = succeeded);
   }
 
   Future<void> _login(AppController controller) async {
@@ -179,20 +220,44 @@ class _ConnectionContentState extends State<_ConnectionContent> {
 
   Future<void> _connect(AppController controller) async {
     final host = _validHostOrNull();
-    if (host == null) {
+    final user = _validUserOrNull();
+    if (host == null || user == null) {
       return;
     }
-    await controller.connect(host);
+    await controller.connect(host, user: user);
   }
 
   String? _validHostOrNull() {
     final host = _hostController.text.trim();
     if (host.isEmpty) {
-      setState(() => _hostError = '请输入主机 IP 或 ~/.ssh/config Host 别名');
+      setState(() {
+        _hostError = '请输入主机 IP 或 ~/.ssh/config Host 别名';
+        _lastTestSucceeded = false;
+      });
       return null;
     }
     setState(() => _hostError = null);
     return host;
+  }
+
+  String? _validUserOrNull() {
+    final user = _userController.text.trim();
+    if (user.isEmpty) {
+      setState(() {
+        _userError = '请输入用户名';
+        _lastTestSucceeded = false;
+      });
+      return null;
+    }
+    if (!RegExp(r'^[a-zA-Z_][a-zA-Z0-9_.-]*[$]?$').hasMatch(user)) {
+      setState(() {
+        _userError = '请输入有效用户名';
+        _lastTestSucceeded = false;
+      });
+      return null;
+    }
+    setState(() => _userError = null);
+    return user;
   }
 
   Future<void> _quickLogin(
@@ -205,8 +270,12 @@ class _ConnectionContentState extends State<_ConnectionContent> {
 
   Future<void> _save(AppController controller) async {
     final host = _hostController.text.trim();
+    final user = _validUserOrNull();
     if (host.isEmpty) {
       setState(() => _hostError = '请输入主机 IP 或 ~/.ssh/config Host 别名');
+      return;
+    }
+    if (user == null) {
       return;
     }
     setState(() => _hostError = null);
@@ -214,6 +283,223 @@ class _ConnectionContentState extends State<_ConnectionContent> {
       ServerProfile(
         name: _nameController.text.trim().isEmpty ? host : _nameController.text.trim(),
         host: host,
+        user: user,
+      ),
+    );
+  }
+
+  Future<void> _copyAuthorizationCommand() async {
+    final user = _validUserOrNull();
+    if (user == null) {
+      return;
+    }
+    final publicKey = await _readLocalPublicKey();
+    if (!mounted) {
+      return;
+    }
+    if (publicKey == null) {
+      await Clipboard.setData(const ClipboardData(text: 'ssh-keygen -t ed25519'));
+      _showConnectionSnackBar(
+        '未找到本机 SSH 公钥，已复制生成公钥命令：ssh-keygen -t ed25519',
+      );
+      return;
+    }
+
+    final command = _authorizationCommandFor(publicKey.key);
+    await Clipboard.setData(ClipboardData(text: command));
+    if (!mounted) {
+      return;
+    }
+    _showConnectionSnackBar(
+      '已复制 ${publicKey.path} 的授权命令，请在目标服务器 $user 用户下执行。',
+    );
+  }
+
+  Future<void> _copyTroubleshootCommand() async {
+    final user = _validUserOrNull();
+    if (user == null) {
+      return;
+    }
+    final publicKey = await _readLocalPublicKey();
+    if (!mounted) {
+      return;
+    }
+    final command = _troubleshootCommandFor(publicKey?.key);
+    await Clipboard.setData(ClipboardData(text: command));
+    if (!mounted) {
+      return;
+    }
+    _showConnectionSnackBar(
+      publicKey == null ? '已复制排查命令；未找到本机公钥，命令会跳过 authorized_keys 内容匹配。' : '已复制排查命令，请在目标服务器 $user 用户下执行并查看输出。',
+    );
+  }
+
+  Future<_LocalPublicKey?> _readLocalPublicKey() async {
+    final home = Platform.environment['HOME'];
+    if (home == null || home.isEmpty) {
+      return null;
+    }
+
+    final candidates = [
+      '$home/.ssh/id_ed25519.pub',
+      '$home/.ssh/id_rsa.pub',
+      '$home/.ssh/id_ecdsa.pub',
+      '$home/.ssh/id_dsa.pub',
+    ];
+    for (final path in candidates) {
+      final file = File(path);
+      if (!await file.exists()) {
+        continue;
+      }
+      final key = (await file.readAsString()).trim();
+      if (_isPublicKey(key)) {
+        return _LocalPublicKey(path: path, key: key);
+      }
+    }
+    return null;
+  }
+
+  bool _isPublicKey(String value) {
+    return value.startsWith('ssh-ed25519 ') ||
+        value.startsWith('ssh-rsa ') ||
+        value.startsWith('ecdsa-sha2-') ||
+        value.startsWith('sk-ssh-ed25519@openssh.com ') ||
+        value.startsWith('sk-ecdsa-sha2-nistp256@openssh.com ');
+  }
+
+  String _authorizationCommandFor(String publicKey) {
+    final quotedKey = shellQuote(publicKey);
+    return 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && '
+        'touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && '
+        'grep -qxF $quotedKey ~/.ssh/authorized_keys || '
+        'printf "%s\\n" $quotedKey >> ~/.ssh/authorized_keys';
+  }
+
+  String _troubleshootCommandFor(String? publicKey) {
+    final quotedKey = shellQuote(publicKey ?? '');
+    return '''
+set -u
+echo "== ssh-depot SSH 连接排查 =="
+echo "[提示] 请在应用里填写的同一个 SSH 用户下执行本命令。"
+echo "[提示] 本命令排查目标机账户、公钥和 sshd 配置；网络、端口、防火墙仍需在本机用 ssh -vvv 排查。"
+echo
+
+problems=0
+current_user=\$(id -un 2>/dev/null || whoami)
+home_dir="\${HOME:-}"
+if [ -z "\$home_dir" ] && command -v getent >/dev/null 2>&1; then
+  home_dir=\$(getent passwd "\$current_user" | cut -d: -f6)
+fi
+ssh_dir="\$home_dir/.ssh"
+authorized_keys="\$ssh_dir/authorized_keys"
+expected_key=$quotedKey
+
+echo "[用户] \$current_user"
+echo "[HOME] \$home_dir"
+echo
+
+if [ -z "\$home_dir" ]; then
+  echo "原因: 无法识别当前用户 HOME 目录。"
+  problems=\$((problems + 1))
+elif [ ! -d "\$ssh_dir" ]; then
+  echo "原因: \$ssh_dir 不存在。需要先创建并授权本机公钥。"
+  problems=\$((problems + 1))
+else
+  ssh_perm=\$(stat -c "%a" "\$ssh_dir" 2>/dev/null || echo "?")
+  ssh_owner=\$(stat -c "%U" "\$ssh_dir" 2>/dev/null || echo "?")
+  echo "[检查] \$ssh_dir 权限=\$ssh_perm 所有者=\$ssh_owner"
+  if [ "\$ssh_perm" != "700" ]; then
+    echo "原因: \$ssh_dir 权限不是 700，sshd 可能拒绝读取。修复: chmod 700 ~/.ssh"
+    problems=\$((problems + 1))
+  fi
+  if [ "\$ssh_owner" != "\$current_user" ]; then
+    echo "原因: \$ssh_dir 所有者不是当前用户。修复: chown \$current_user:\$current_user ~/.ssh"
+    problems=\$((problems + 1))
+  fi
+fi
+
+if [ ! -f "\$authorized_keys" ]; then
+  echo "原因: \$authorized_keys 不存在。需要把本机公钥追加进去。"
+  problems=\$((problems + 1))
+else
+  key_perm=\$(stat -c "%a" "\$authorized_keys" 2>/dev/null || echo "?")
+  key_owner=\$(stat -c "%U" "\$authorized_keys" 2>/dev/null || echo "?")
+  echo "[检查] \$authorized_keys 权限=\$key_perm 所有者=\$key_owner"
+  if [ "\$key_perm" != "600" ]; then
+    echo "原因: authorized_keys 权限不是 600，sshd 可能拒绝读取。修复: chmod 600 ~/.ssh/authorized_keys"
+    problems=\$((problems + 1))
+  fi
+  if [ "\$key_owner" != "\$current_user" ]; then
+    echo "原因: authorized_keys 所有者不是当前用户。修复: chown \$current_user:\$current_user ~/.ssh/authorized_keys"
+    problems=\$((problems + 1))
+  fi
+  if [ -n "\$expected_key" ]; then
+    if grep -qxF "\$expected_key" "\$authorized_keys"; then
+      echo "[检查] authorized_keys 已包含本机公钥"
+    else
+      echo "原因: authorized_keys 未包含本机公钥。请重新执行“复制授权命令”。"
+      problems=\$((problems + 1))
+    fi
+  else
+    echo "[跳过] 未带入本机公钥，无法检查 authorized_keys 是否包含正确公钥。"
+  fi
+fi
+
+if command -v sshd >/dev/null 2>&1; then
+  effective=\$(sshd -T -C user="\$current_user",host=localhost,addr=127.0.0.1 2>/dev/null || true)
+  if [ -n "\$effective" ]; then
+    pubkey_auth=\$(printf "%s\\n" "\$effective" | awk '/^pubkeyauthentication / {print \$2; exit}')
+    password_auth=\$(printf "%s\\n" "\$effective" | awk '/^passwordauthentication / {print \$2; exit}')
+    authorized_file=\$(printf "%s\\n" "\$effective" | awk '/^authorizedkeysfile / {for (i=2; i<=NF; i++) printf "%s%s", (i==2 ? "" : " "), \$i; print ""; exit}')
+    echo "[检查] PubkeyAuthentication=\${pubkey_auth:-unknown}"
+    echo "[检查] PasswordAuthentication=\${password_auth:-unknown}"
+    echo "[检查] AuthorizedKeysFile=\${authorized_file:-unknown}"
+    if [ "\${pubkey_auth:-yes}" = "no" ]; then
+      echo "原因: sshd 禁用了公钥认证。需要在 sshd 配置中启用 PubkeyAuthentication。"
+      problems=\$((problems + 1))
+    fi
+  else
+    echo "[提示] sshd -T 无法读取有效配置，改用配置文件关键词检查。"
+  fi
+else
+  echo "[提示] 未找到 sshd 命令，跳过 sshd 有效配置检查。"
+fi
+
+config_hits=\$(grep -hE "^[[:space:]]*(PubkeyAuthentication|PasswordAuthentication|PermitRootLogin|AuthorizedKeysFile)[[:space:]]+" /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null || true)
+if [ -n "\$config_hits" ]; then
+  echo
+  echo "[sshd 配置片段]"
+  printf "%s\\n" "\$config_hits"
+fi
+
+echo
+if [ "\$problems" -eq 0 ]; then
+  echo "未在目标机账户、公钥和 sshd 基础配置中发现明显问题。"
+  echo "下一步请在本机执行: ssh -vvv \$current_user@<服务器地址> 'echo __ssh-depot_ok__'"
+else
+  echo "发现 \$problems 个可能原因，请按上方原因修复后重新测试连接。"
+fi
+'''
+        .trim();
+  }
+
+  void _showConnectionSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          message,
+          style: TextStyle(
+            color: _text.withValues(alpha: 0.92),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        backgroundColor: _panel,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(18),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: _lineDim),
+        ),
       ),
     );
   }
@@ -222,7 +508,10 @@ class _ConnectionContentState extends State<_ConnectionContent> {
     setState(() {
       _nameController.text = server.name.isEmpty ? server.host : server.name;
       _hostController.text = server.host;
+      _userController.text = server.user.isEmpty ? 'root' : server.user;
       _hostError = null;
+      _userError = null;
+      _lastTestSucceeded = null;
     });
   }
 
@@ -230,9 +519,19 @@ class _ConnectionContentState extends State<_ConnectionContent> {
     setState(() {
       _nameController.clear();
       _hostController.clear();
+      _userController.text = 'root';
       _hostError = null;
+      _userError = null;
+      _lastTestSucceeded = null;
     });
   }
+}
+
+class _LocalPublicKey {
+  const _LocalPublicKey({required this.path, required this.key});
+
+  final String path;
+  final String key;
 }
 
 class _SavedServersPanel extends StatelessWidget {
@@ -242,6 +541,7 @@ class _SavedServersPanel extends StatelessWidget {
     required this.onSelect,
     required this.onCreate,
     required this.onConnect,
+    required this.onCopyAuthorizationCommand,
   });
 
   final List<ServerProfile> servers;
@@ -249,6 +549,7 @@ class _SavedServersPanel extends StatelessWidget {
   final ValueChanged<ServerProfile> onSelect;
   final VoidCallback onCreate;
   final ValueChanged<ServerProfile> onConnect;
+  final VoidCallback onCopyAuthorizationCommand;
 
   @override
   Widget build(BuildContext context) {
@@ -285,7 +586,10 @@ class _SavedServersPanel extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          const _InfoBox(),
+          _AuthorizationHelpBox(
+            isRunning: disabled,
+            onCopyAuthorizationCommand: onCopyAuthorizationCommand,
+          ),
         ],
       ),
     );
@@ -296,24 +600,32 @@ class _ConnectionPanel extends StatelessWidget {
   const _ConnectionPanel({
     required this.nameController,
     required this.hostController,
+    required this.userController,
     required this.isRunning,
+    required this.testSucceeded,
     required this.hostError,
+    required this.userError,
     required this.terminalText,
     required this.onSubmitted,
     required this.onTest,
     required this.onConnect,
     required this.onSave,
+    required this.onCopyTroubleshootCommand,
   });
 
   final TextEditingController nameController;
   final TextEditingController hostController;
+  final TextEditingController userController;
   final bool isRunning;
+  final bool? testSucceeded;
   final String? hostError;
+  final String? userError;
   final String terminalText;
   final VoidCallback onSubmitted;
   final VoidCallback onTest;
   final VoidCallback onConnect;
   final VoidCallback onSave;
+  final VoidCallback onCopyTroubleshootCommand;
 
   @override
   Widget build(BuildContext context) {
@@ -323,7 +635,7 @@ class _ConnectionPanel extends StatelessWidget {
         children: [
           Text('连接信息', style: _titleStyle(context)),
           const SizedBox(height: 4),
-          Text('仅支持密钥认证，默认使用 root 用户', style: _captionStyle(context)),
+          Text('仅支持密钥认证，用户名默认 root，可按服务器配置修改', style: _captionStyle(context)),
           const SizedBox(height: 22),
           const _FieldLabel('服务器名称'),
           const SizedBox(height: 7),
@@ -345,7 +657,13 @@ class _ConnectionPanel extends StatelessWidget {
           const SizedBox(height: 14),
           const _FieldLabel('用户名'),
           const SizedBox(height: 7),
-          const _DarkTextField(initialValue: 'root', enabled: false),
+          _DarkTextField(
+            controller: userController,
+            hintText: 'root',
+            enabled: !isRunning,
+            errorText: userError,
+            onSubmitted: (_) => onSubmitted(),
+          ),
           const SizedBox(height: 14),
           Wrap(
             spacing: 12,
@@ -356,27 +674,33 @@ class _ConnectionPanel extends StatelessWidget {
                 height: 44,
                 child: OutlinedButton.icon(
                   onPressed: isRunning ? null : onTest,
-                  icon: const _PulseDot(),
+                  icon: _PulseDot(
+                    color: isRunning
+                        ? Color(0xffffcf63)
+                        : switch (testSucceeded) {
+                            true => _accent,
+                            false => Color(0xffff6d92),
+                            null => _muted,
+                          },
+                  ),
                   label: Text(isRunning ? '连接中' : '测试连接'),
                   style: _outlinedButtonStyle(),
                 ),
               ),
               SizedBox(
                 height: 44,
-                child: FilledButton(
-                  onPressed: isRunning ? null : onConnect,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: _accent,
-                    foregroundColor: const Color(0xff042014),
-                    disabledBackgroundColor: _accent.withValues(alpha: 0.38),
-                    padding: const EdgeInsets.symmetric(horizontal: 28),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    textStyle: const TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  child: Text(isRunning ? '连接中' : '开始连接'),
-                ),
+                child: testSucceeded == false
+                    ? FilledButton.icon(
+                        onPressed: isRunning ? null : onCopyTroubleshootCommand,
+                        icon: const Icon(Icons.manage_search, size: 18),
+                        label: const Text('复制排查命令'),
+                        style: _filledConnectButtonStyle(),
+                      )
+                    : FilledButton(
+                        onPressed: isRunning ? null : onConnect,
+                        style: _filledConnectButtonStyle(),
+                        child: Text(isRunning ? '连接中' : '开始连接'),
+                      ),
               ),
               SizedBox(
                 height: 44,
@@ -391,6 +715,94 @@ class _ConnectionPanel extends StatelessWidget {
           const SizedBox(height: 18),
           _TerminalOutputBox(text: terminalText),
         ],
+      ),
+    );
+  }
+}
+
+class _AuthorizationHelpBox extends StatelessWidget {
+  const _AuthorizationHelpBox({
+    required this.isRunning,
+    required this.onCopyAuthorizationCommand,
+  });
+
+  final bool isRunning;
+  final VoidCallback onCopyAuthorizationCommand;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      decoration: BoxDecoration(
+        color: const Color(0xff071a11),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _lineDim),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 520;
+          final copyButton = OutlinedButton.icon(
+            onPressed: isRunning ? null : onCopyAuthorizationCommand,
+            icon: const Icon(Icons.copy, size: 16),
+            label: const FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text('复制授权命令'),
+            ),
+            style: _outlinedButtonStyle().copyWith(
+              padding: const WidgetStatePropertyAll(
+                EdgeInsets.symmetric(horizontal: 12),
+              ),
+            ),
+          );
+          final description = Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.key_outlined, color: _accent, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '首次连接需要先授权本机公钥',
+                      style: _titleStyle(context).copyWith(fontSize: 13),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '复制命令后，在目标服务器当前填写的 SSH 用户下执行；完成后回到这里点击“测试连接”。',
+                      style: _captionStyle(context).copyWith(height: 1.45),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+
+          if (compact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                description,
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  height: 42,
+                  child: copyButton,
+                ),
+              ],
+            );
+          }
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: description),
+              const SizedBox(width: 12),
+              copyButton,
+            ],
+          );
+        },
       ),
     );
   }
@@ -515,7 +927,6 @@ class _GlassPanel extends StatelessWidget {
 class _DarkTextField extends StatelessWidget {
   const _DarkTextField({
     this.controller,
-    this.initialValue,
     this.hintText,
     this.errorText,
     this.enabled = true,
@@ -523,7 +934,6 @@ class _DarkTextField extends StatelessWidget {
   });
 
   final TextEditingController? controller;
-  final String? initialValue;
   final String? hintText;
   final String? errorText;
   final bool enabled;
@@ -533,7 +943,6 @@ class _DarkTextField extends StatelessWidget {
   Widget build(BuildContext context) {
     return TextFormField(
       controller: controller,
-      initialValue: initialValue,
       enabled: enabled,
       onFieldSubmitted: onSubmitted,
       style: const TextStyle(color: _text, fontWeight: FontWeight.w700),
@@ -581,40 +990,6 @@ class _FieldLabel extends StatelessWidget {
     return Text(
       text,
       style: _captionStyle(context).copyWith(fontWeight: FontWeight.w700),
-    );
-  }
-}
-
-class _InfoBox extends StatelessWidget {
-  const _InfoBox();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-      decoration: BoxDecoration(
-        color: const Color(0xff071a11),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: _lineDim),
-      ),
-      child: DefaultTextStyle(
-        style: Theme.of(context).textTheme.bodySmall!.copyWith(
-              color: const Color(0xffc8dbcf),
-              height: 1.55,
-            ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('说明', style: _titleStyle(context).copyWith(fontSize: 13)),
-            const SizedBox(height: 6),
-            const Text('- 不支持密码登录'),
-            const Text('- 自动继承 ~/.ssh/config'),
-            const Text('- 连接测试会执行 root@host echo __ssh-depot_ok__'),
-            const Text('- 连接成功后进入概览页'),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -709,27 +1084,36 @@ class _TerminalOutputBoxState extends State<_TerminalOutputBox> {
           Expanded(
             child: DepotScrollbar(
               controller: _scrollController,
-              child: SingleChildScrollView(
-                controller: _scrollController,
-                padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
-                child: Align(
-                  alignment: Alignment.topLeft,
-                  child: SelectableText(
-                    output,
-                    style: TextStyle(
-                      color: widget.text.trim().isEmpty ? _muted : const Color(0xffd6eadf),
-                      fontFamily: 'monospace',
-                      fontFamilyFallback: const [
-                        'Noto Sans Mono CJK SC',
-                        'Noto Sans CJK SC',
-                        'Noto Sans CJK',
-                        'WenQuanYi Micro Hei',
-                      ],
-                      fontSize: 12,
-                      height: 1.45,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return SingleChildScrollView(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: constraints.maxHeight - 22,
+                      ),
+                      child: Align(
+                        alignment: Alignment.topLeft,
+                        child: SelectableText(
+                          output,
+                          style: TextStyle(
+                            color: widget.text.trim().isEmpty ? _muted : const Color(0xffd6eadf),
+                            fontFamily: 'monospace',
+                            fontFamilyFallback: const [
+                              'Noto Sans Mono CJK SC',
+                              'Noto Sans CJK SC',
+                              'Noto Sans CJK',
+                              'WenQuanYi Micro Hei',
+                            ],
+                            fontSize: 12,
+                            height: 1.45,
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
             ),
           ),
@@ -799,7 +1183,9 @@ class _EmptySavedServers extends StatelessWidget {
 }
 
 class _PulseDot extends StatelessWidget {
-  const _PulseDot();
+  const _PulseDot({required this.color});
+
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
@@ -807,11 +1193,11 @@ class _PulseDot extends StatelessWidget {
       width: 18,
       height: 18,
       decoration: BoxDecoration(
-        color: _accent,
+        color: color,
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
-            color: _accent.withValues(alpha: 0.45),
+            color: color.withValues(alpha: 0.45),
             blurRadius: 14,
             spreadRadius: 1,
           ),
@@ -839,5 +1225,18 @@ ButtonStyle _outlinedButtonStyle() {
     padding: const EdgeInsets.symmetric(horizontal: 18),
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
     textStyle: const TextStyle(fontWeight: FontWeight.w700),
+  );
+}
+
+ButtonStyle _filledConnectButtonStyle() {
+  return FilledButton.styleFrom(
+    backgroundColor: _accent,
+    foregroundColor: const Color(0xff042014),
+    disabledBackgroundColor: _accent.withValues(alpha: 0.38),
+    padding: const EdgeInsets.symmetric(horizontal: 28),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(18),
+    ),
+    textStyle: const TextStyle(fontWeight: FontWeight.w800),
   );
 }

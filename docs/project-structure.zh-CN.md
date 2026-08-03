@@ -115,7 +115,7 @@ lib/
 ```text
 lib/feature/packages/
 ├── ssh/
-│   ├── ssh_target.dart       # root@host、连接参数、SSH 选项
+│   ├── ssh_target.dart       # user@host、连接参数、SSH 选项
 │   ├── ssh_executor.dart     # 统一执行远程命令
 │   └── ssh_command.dart      # 命令摘要、超时、stdin 等参数
 ├── local_config/
@@ -317,7 +317,7 @@ lib/feature/parts/nginx/...  -> test/feature/parts/nginx/...
 
 避免以下做法：
 
-- 在任意 widget 中直接拼接 `ssh root@host "..."`。
+- 在任意 widget 中直接拼接 `ssh user@host "..."`。
 - 一个 part 直接 import 另一个 part 的内部组件或 Cubit。
 - 把 Nginx 专用组件放进 `feature/components`。
 - 把产品业务对象放进 `core`。

@@ -25,8 +25,8 @@ flutter:
   uses-material-design: true
   assets:
     - assets/
-    - assets/icons/svg/
-    - assets/icons/png/
-    - assets/images/png/
-    - assets/images/jpg/
-    - assets/terminal_themes/
+    - path: assets/icons/svg/
+    - path: assets/icons/png/
+    - path: assets/images/png/
+    - path: assets/images/jpg/
+    - path: assets/terminal_themes/
