@@ -9,6 +9,7 @@ import 'feature/pages/overview_page.dart';
 import 'feature/pages/packages_page.dart';
 import 'feature/pages/services_page.dart';
 import 'feature/pages/settings_page.dart';
+import 'feature/pages/ssl_page.dart';
 
 void main() {
   runApp(const SshDepotApp());
@@ -85,6 +86,10 @@ final _router = GoRouter(
         GoRoute(
           path: '/nginx',
           pageBuilder: (context, state) => _contentPage(state, const NginxPage()),
+        ),
+        GoRoute(
+          path: '/ssl',
+          pageBuilder: (context, state) => _contentPage(state, const SslPage()),
         ),
         GoRoute(
           path: '/settings',

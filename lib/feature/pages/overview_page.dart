@@ -137,7 +137,7 @@ class _HeroPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _Panel(
+    return DepotCard(
       padding: const EdgeInsets.fromLTRB(42, 34, 42, 30),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -169,9 +169,9 @@ class _HeroPanel extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
                   decoration: BoxDecoration(
-                    color: depotTerminal,
+                    color: depotTerminal.withValues(alpha: depotCardAlpha),
                     borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: depotLineDim),
+                    border: Border.all(color: depotLineDim.withValues(alpha: 0.72)),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -199,11 +199,11 @@ class _HeroPanel extends StatelessWidget {
                 : const Icon(Icons.radio_button_checked, size: 18),
             label: Text(isRunning ? '刷新中' : '手动刷新'),
             style: FilledButton.styleFrom(
-              backgroundColor: depotPanel,
+              backgroundColor: depotPanel.withValues(alpha: depotCardAlpha),
               foregroundColor: depotText,
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-              side: const BorderSide(color: depotLine),
+              side: BorderSide(color: depotLine.withValues(alpha: 0.72)),
               textStyle: const TextStyle(fontWeight: FontWeight.w800),
             ),
           ),
@@ -228,7 +228,7 @@ class _MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _Panel(
+    return DepotCard(
       height: 126,
       padding: const EdgeInsets.all(18),
       child: Column(
@@ -277,7 +277,7 @@ class _ServiceStatusPanel extends StatelessWidget {
               ServiceSnapshot(name: service, status: ServiceStatus.unknown, enabled: null),
           ]
         : services;
-    return _Panel(
+    return DepotCard(
       padding: const EdgeInsets.fromLTRB(28, 22, 28, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -315,9 +315,9 @@ class _ServiceHeader extends StatelessWidget {
       height: 34,
       padding: const EdgeInsets.symmetric(horizontal: 18),
       decoration: BoxDecoration(
-        color: depotPanelAlt.withValues(alpha: 0.35),
+        color: depotPanelAlt.withValues(alpha: depotMutedSurfaceStrongAlpha),
         borderRadius: BorderRadius.circular(17),
-        border: Border.all(color: depotLineDim),
+        border: Border.all(color: depotLineDim.withValues(alpha: 0.78)),
       ),
       child: Row(
         children: [
@@ -357,9 +357,9 @@ class _ServiceRow extends StatelessWidget {
       constraints: const BoxConstraints(minHeight: 58),
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
       decoration: BoxDecoration(
-        color: depotPanelAlt.withValues(alpha: 0.24),
+        color: depotPanelAlt.withValues(alpha: depotMutedSurfaceAlpha),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: depotLineDim),
+        border: Border.all(color: depotLineDim.withValues(alpha: 0.78)),
       ),
       child: Row(
         children: [
@@ -456,7 +456,7 @@ class _RecentOpsPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _Panel(
+    return DepotCard(
       padding: const EdgeInsets.fromLTRB(24, 22, 24, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -490,9 +490,9 @@ class _RecentOpRow extends StatelessWidget {
       height: 40,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: depotPanelAlt.withValues(alpha: 0.18),
+        color: depotPanelAlt.withValues(alpha: depotMutedSurfaceAlpha),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: depotLineDim),
+        border: Border.all(color: depotLineDim.withValues(alpha: 0.72)),
       ),
       child: Row(
         children: [
@@ -520,39 +520,6 @@ class _RecentOpRow extends StatelessWidget {
   String _timeLabel(DateTime value) {
     String two(int number) => number.toString().padLeft(2, '0');
     return '${two(value.hour)}:${two(value.minute)}:${two(value.second)}';
-  }
-}
-
-class _Panel extends StatelessWidget {
-  const _Panel({
-    required this.child,
-    this.height,
-    this.padding = const EdgeInsets.all(22),
-  });
-
-  final Widget child;
-  final double? height;
-  final EdgeInsetsGeometry padding;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: height,
-      padding: padding,
-      decoration: BoxDecoration(
-        color: depotPanel.withValues(alpha: 0.9),
-        borderRadius: BorderRadius.circular(26),
-        border: Border.all(color: depotLine.withValues(alpha: 0.75)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.28),
-            blurRadius: 28,
-            offset: const Offset(0, 16),
-          ),
-        ],
-      ),
-      child: child,
-    );
   }
 }
 

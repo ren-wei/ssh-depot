@@ -48,6 +48,7 @@ class AppController extends ChangeNotifier {
   List<ServerProfile> servers = [];
   List<String> managedServices = const ['nginx'];
   List<NginxSite> nginxSites = const [];
+  List<NginxCertificateInfo> nginxCertificates = const [];
   List<NginxTemplateDefinition> customNginxTemplates = const [];
   Map<String, ServiceSnapshot> serviceSnapshots = const {};
   SshTarget? target;
@@ -453,7 +454,8 @@ class AppController extends ChangeNotifier {
           '  issuer=\$(openssl x509 -in "\$fullchain" -noout -issuer 2>/dev/null | sed "s/^issuer=//" || true); '
           '  names=\$(openssl x509 -in "\$fullchain" -noout -ext subjectAltName 2>/dev/null '
           '    | grep -o "DNS:[^, ]*" | sed "s/^DNS://" | tr "\\n" " " | tr -s " " | sed "s/^ //;s/ \$//" || true); '
-          '  printf "%s|%s|%s|%s|%s\\n" "\$name" "\$end_epoch" "\$issuer" "\$fullchain" "\$names"; '
+          '  private_key="\$certdir/privkey.pem"; '
+          '  printf "%s|%s|%s|%s|%s|%s\\n" "\$name" "\$end_epoch" "\$issuer" "\$fullchain" "\$private_key" "\$names"; '
           'done',
       timeout: const Duration(seconds: 20),
     );
@@ -635,17 +637,31 @@ class AppController extends ChangeNotifier {
     await refreshNginxSites();
   }
 
-  Future<RemoteCommandResult?> certificateDetails(String site) {
-    if (!_isSafeSiteName(site)) {
+  Future<RemoteCommandResult?> certificateDetails(String certName) {
+    final cleanCertName = certName.trim();
+    if (!_isSafeSiteName(cleanCertName)) {
       _setStatus('无效证书名称');
       return Future.value();
     }
     return _runCaptureRemote(
-      summary: '查看证书 $site',
-      command: 'fullchain=/etc/letsencrypt/live/${shellQuote(site)}/fullchain.pem; '
+      summary: '查看证书 $cleanCertName',
+      command: 'fullchain=/etc/letsencrypt/live/${shellQuote(cleanCertName)}/fullchain.pem; '
           'if [ ! -f "\$fullchain" ]; then echo "未找到证书: \$fullchain"; exit 1; fi; '
-          'openssl x509 -in "\$fullchain" -noout -subject -issuer -dates -serial',
+          'openssl x509 -in "\$fullchain" -noout -subject -issuer -dates -serial -ext subjectAltName',
       timeout: const Duration(seconds: 12),
+    );
+  }
+
+  Future<RemoteCommandResult?> checkCertificateEnvironment() {
+    return _runCaptureRemote(
+      summary: '检查证书环境',
+      command: 'set +e; '
+          'echo "[certbot]"; command -v certbot && certbot --version || echo "certbot 未安装"; '
+          'echo; echo "[certbot plugins]"; certbot plugins 2>/dev/null || true; '
+          'echo; echo "[nginx]"; nginx -t; '
+          'echo; echo "[nginx status]"; systemctl is-active nginx 2>/dev/null || true; '
+          'echo; echo "[listen 80/443]"; ss -lntp 2>/dev/null | grep -E ":(80|443)[[:space:]]" || true',
+      timeout: const Duration(seconds: 20),
     );
   }
 
@@ -655,8 +671,8 @@ class AppController extends ChangeNotifier {
     required bool useWebroot,
     required String webroot,
   }) async {
-    final cleanDomain = domain.trim();
-    if (!_isSafeSiteName(cleanDomain)) {
+    final domains = _parseCertificateRequestDomains(domain);
+    if (domains.isEmpty) {
       _setStatus('无效域名');
       return null;
     }
@@ -664,12 +680,17 @@ class AppController extends ChangeNotifier {
       _setStatus('请输入邮箱');
       return null;
     }
+    if (useWebroot && webroot.trim().isEmpty) {
+      _setStatus('请输入 Webroot 路径');
+      return null;
+    }
+    final domainArgs = domains.map((domain) => '-d ${shellQuote(domain)}').join(' ');
     final command = useWebroot
-        ? 'certbot certonly --webroot -w ${shellQuote(webroot.trim())} -d ${shellQuote(cleanDomain)} '
+        ? 'certbot certonly --webroot -w ${shellQuote(webroot.trim())} $domainArgs '
             '--non-interactive --agree-tos -m ${shellQuote(email.trim())}'
-        : 'certbot --nginx -d ${shellQuote(cleanDomain)} --non-interactive --agree-tos -m ${shellQuote(email.trim())}';
+        : 'certbot --nginx $domainArgs --non-interactive --agree-tos -m ${shellQuote(email.trim())}';
     final result = await _runCaptureRemote(
-      summary: '申请证书 $cleanDomain',
+      summary: '申请证书 ${domains.first}',
       command: command,
       timeout: const Duration(minutes: 5),
     );
@@ -677,28 +698,66 @@ class AppController extends ChangeNotifier {
     return result;
   }
 
-  Future<RemoteCommandResult?> renewCertificate(String site) async {
-    if (!_isSafeSiteName(site)) {
+  Future<RemoteCommandResult?> renewCertificate(String certName, {bool dryRun = false}) async {
+    final cleanCertName = certName.trim();
+    if (!_isSafeSiteName(cleanCertName)) {
       _setStatus('无效证书名称');
       return null;
     }
     final result = await _runCaptureRemote(
-      summary: '续期证书 $site',
-      command: 'certbot renew --cert-name ${shellQuote(site)}',
+      summary: dryRun ? '测试续期证书 $cleanCertName' : '续期证书 $cleanCertName',
+      command: 'certbot renew --cert-name ${shellQuote(cleanCertName)}${dryRun ? ' --dry-run' : ''}',
       timeout: const Duration(minutes: 5),
     );
     await refreshNginxSites();
     return result;
   }
 
-  Future<RemoteCommandResult?> deleteCertificate(String site) async {
-    if (!_isSafeSiteName(site)) {
+  Future<RemoteCommandResult?> updateCertificateDomains({
+    required String certName,
+    required List<String> domains,
+    required bool useWebroot,
+    required String webroot,
+  }) async {
+    final cleanCertName = certName.trim();
+    final cleanDomains = {
+      for (final domain in domains) ..._parseCertificateRequestDomains(domain),
+    }.toList();
+    if (!_isSafeSiteName(cleanCertName)) {
+      _setStatus('无效证书名称');
+      return null;
+    }
+    if (cleanDomains.isEmpty) {
+      _setStatus('证书至少需要保留一个域名');
+      return null;
+    }
+    if (useWebroot && webroot.trim().isEmpty) {
+      _setStatus('请输入 Webroot 路径');
+      return null;
+    }
+    final domainArgs = cleanDomains.map((domain) => '-d ${shellQuote(domain)}').join(' ');
+    final command = useWebroot
+        ? 'certbot certonly --webroot -w ${shellQuote(webroot.trim())} --cert-name ${shellQuote(cleanCertName)} '
+            '$domainArgs --non-interactive'
+        : 'certbot --nginx --cert-name ${shellQuote(cleanCertName)} $domainArgs --non-interactive';
+    final result = await _runCaptureRemote(
+      summary: '更新证书域名 $cleanCertName',
+      command: command,
+      timeout: const Duration(minutes: 5),
+    );
+    await refreshNginxSites();
+    return result;
+  }
+
+  Future<RemoteCommandResult?> deleteCertificate(String certName) async {
+    final cleanCertName = certName.trim();
+    if (!_isSafeSiteName(cleanCertName)) {
       _setStatus('无效证书名称');
       return null;
     }
     final result = await _runCaptureRemote(
-      summary: '删除证书 $site',
-      command: 'certbot delete --cert-name ${shellQuote(site)} --non-interactive',
+      summary: '删除证书 $cleanCertName',
+      command: 'certbot delete --cert-name ${shellQuote(cleanCertName)} --non-interactive',
       timeout: const Duration(minutes: 2),
     );
     await refreshNginxSites();
@@ -947,6 +1006,7 @@ class AppController extends ChangeNotifier {
     _lineBuffer.clear();
     _recentOperations.clear();
     nginxSites = const [];
+    nginxCertificates = const [];
     serviceSnapshots = const {};
     overviewSnapshot = null;
     serviceLogsService = null;
@@ -1099,6 +1159,7 @@ class AppController extends ChangeNotifier {
       }
     }
 
+    nginxCertificates = certificates;
     final names = {...available, ...enabled}.toList()..sort();
     return [
       for (final name in names)
@@ -1121,13 +1182,14 @@ class AppController extends ChangeNotifier {
     }
     final epoch = int.tryParse(parts[1]);
     final expiresAt = epoch == null || epoch <= 0 ? null : DateTime.fromMillisecondsSinceEpoch(epoch * 1000);
-    final names = _parseDomainList(parts.length > 4 ? parts[4] : '');
+    final domains = _parseDomainList(parts.length > 5 ? parts[5] : (parts.length > 4 ? parts[4] : ''));
     return NginxCertificateInfo(
-      domain: parts[0],
+      certName: parts[0],
       expiresAt: expiresAt,
       issuer: parts[2].isEmpty ? null : parts[2],
       fullchainPath: parts[3],
-      names: names,
+      privateKeyPath: parts.length > 5 && parts[4].isNotEmpty ? parts[4] : null,
+      domains: domains,
       status: _certificateStatus(expiresAt),
     );
   }
@@ -1138,6 +1200,15 @@ class AppController extends ChangeNotifier {
         .map((domain) => domain.trim())
         .where((domain) =>
             domain.isNotEmpty && domain != '_' && _isSafeSiteName(domain.replaceFirst(RegExp(r'^\*\.'), 'wildcard.')))
+        .toSet()
+        .toList();
+  }
+
+  List<String> _parseCertificateRequestDomains(String value) {
+    return value
+        .split(RegExp(r'[\s,]+'))
+        .map((domain) => domain.trim())
+        .where((domain) => domain.isNotEmpty && _isSafeSiteName(domain.replaceFirst(RegExp(r'^\*\.'), 'wildcard.')))
         .toSet()
         .toList();
   }
@@ -1153,8 +1224,8 @@ class AppController extends ChangeNotifier {
     };
     for (final certificate in certificates) {
       final certificateNames = {
-        certificate.domain,
-        ...certificate.names,
+        certificate.certName,
+        ...certificate.domains,
       };
       if (candidates.any(certificateNames.contains)) {
         return certificate;

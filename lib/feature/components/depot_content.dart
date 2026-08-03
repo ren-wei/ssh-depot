@@ -94,21 +94,9 @@ class DepotPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return DepotCard(
       height: height,
       padding: padding,
-      decoration: BoxDecoration(
-        color: depotPanel.withValues(alpha: 0.9),
-        borderRadius: BorderRadius.circular(26),
-        border: Border.all(color: depotLine.withValues(alpha: 0.75)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.28),
-            blurRadius: 28,
-            offset: const Offset(0, 16),
-          ),
-        ],
-      ),
       child: child,
     );
   }
@@ -177,9 +165,9 @@ class DepotRow extends StatelessWidget {
       constraints: height == null ? const BoxConstraints(minHeight: 58) : null,
       padding: padding,
       decoration: BoxDecoration(
-        color: depotPanelAlt.withValues(alpha: 0.24),
+        color: depotPanelAlt.withValues(alpha: depotMutedSurfaceAlpha),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: depotLineDim),
+        border: Border.all(color: depotLineDim.withValues(alpha: 0.78)),
       ),
       child: child,
     );

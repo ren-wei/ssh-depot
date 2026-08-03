@@ -28,20 +28,26 @@ class NginxSite {
 
 class NginxCertificateInfo {
   const NginxCertificateInfo({
-    required this.domain,
+    required this.certName,
     required this.status,
     required this.fullchainPath,
-    this.names = const [],
+    this.privateKeyPath,
+    this.domains = const [],
     this.expiresAt,
     this.issuer,
   });
 
-  final String domain;
+  final String certName;
   final CertificateStatus status;
   final String fullchainPath;
-  final List<String> names;
+  final String? privateKeyPath;
+  final List<String> domains;
   final DateTime? expiresAt;
   final String? issuer;
+
+  String get domain => domains.isEmpty ? certName : domains.first;
+
+  List<String> get names => domains;
 
   String get statusLabel {
     return switch (status) {

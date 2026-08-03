@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -18,6 +20,11 @@ const depotBlue = Color(0xff55bde8);
 const depotYellow = Color(0xffffcf63);
 const depotRed = Color(0xffff6d92);
 const depotTerminal = Color(0xff06170f);
+const depotCardAlpha = 0.48;
+const depotCardBorderAlpha = 0.52;
+const depotCardShadowAlpha = 0.12;
+const depotMutedSurfaceAlpha = 0.1;
+const depotMutedSurfaceStrongAlpha = 0.16;
 
 class AppShell extends StatelessWidget {
   const AppShell({required this.selectedPath, required this.child, super.key});
@@ -74,7 +81,7 @@ class AppShell extends StatelessWidget {
                                   },
                                 ),
                                 const SizedBox(width: 22),
-                                Expanded(child: ClipRRect(borderRadius: BorderRadius.circular(26), child: child)),
+                                Expanded(child: child),
                               ],
                             ),
                           ),
@@ -138,7 +145,7 @@ const _items = [
   _ShellItem(path: '/packages', label: '软件包', subtitle: 'apt 安装/卸载', icon: Icons.inventory_2_outlined),
   _ShellItem(path: '/services', label: '服务', subtitle: '启停/重启/状态', icon: Icons.toggle_on_outlined),
   _ShellItem(path: '/nginx', label: '网站管理', subtitle: '站点配置', icon: Icons.account_tree_outlined),
-  _ShellItem(label: 'SSL', subtitle: '证书管理', icon: Icons.key_outlined),
+  _ShellItem(path: '/ssl', label: 'SSL', subtitle: '证书管理', icon: Icons.key_outlined),
   _ShellItem(label: '文件', subtitle: '目录与编辑', icon: Icons.folder_outlined),
   _ShellItem(label: '日志', subtitle: '常见日志源', icon: Icons.notes_outlined),
   _ShellItem(label: 'Cron', subtitle: '定时任务', icon: Icons.schedule_outlined),
@@ -150,16 +157,95 @@ class _GlowBackdrop extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: RadialGradient(
-          center: Alignment(-0.62, -0.58),
-          radius: 1.15,
-          colors: [Color(0xff1c8d51), Color(0xff073220), depotBg],
-          stops: [0, 0.44, 1],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final sx = constraints.maxWidth / 1440;
+        final sy = constraints.maxHeight / 1024;
+        final blurScale = (sx + sy) / 2;
+        return Stack(
+          fit: StackFit.expand,
+          clipBehavior: Clip.hardEdge,
+          children: [
+            const ColoredBox(color: Color(0xff06140f)),
+            _SketchGlow(
+              left: -160 * sx,
+              top: -120 * sy,
+              width: 560 * sx,
+              height: 420 * sy,
+              blur: 120 * blurScale,
+              color: const Color(0xff2fe38d).withValues(alpha: 0.72),
+            ),
+            _SketchGlow(
+              left: 820 * sx,
+              top: -90 * sy,
+              width: 620 * sx,
+              height: 420 * sy,
+              blur: 120 * blurScale,
+              color: const Color(0xff4bbdff).withValues(alpha: 0.68),
+            ),
+            _SketchGlow(
+              left: 360 * sx,
+              top: 690 * sy,
+              width: 780 * sx,
+              height: 360 * sy,
+              blur: 130 * blurScale,
+              color: const Color(0xff49e39b).withValues(alpha: 0.3),
+            ),
+            Positioned(
+              left: 0,
+              top: 0,
+              right: 0,
+              height: 160 * sy,
+              child: const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0x66143224), Color(0x00143224)],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _SketchGlow extends StatelessWidget {
+  const _SketchGlow({
+    required this.left,
+    required this.top,
+    required this.width,
+    required this.height,
+    required this.blur,
+    required this.color,
+  });
+
+  final double left;
+  final double top;
+  final double width;
+  final double height;
+  final double blur;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: left,
+      top: top,
+      width: width,
+      height: height,
+      child: ImageFiltered(
+        imageFilter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+        child: DecoratedBox(
+          decoration: ShapeDecoration(
+            color: color,
+            shape: const OvalBorder(),
+          ),
         ),
       ),
-      child: SizedBox.expand(),
     );
   }
 }
@@ -284,7 +370,7 @@ class _SidebarState extends State<_Sidebar> {
             width: double.infinity,
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: depotPanelAlt.withValues(alpha: 0.45),
+              color: depotPanelAlt.withValues(alpha: depotMutedSurfaceStrongAlpha),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: depotLineDim),
             ),
@@ -389,6 +475,7 @@ class _TerminalStatusBar extends StatelessWidget {
       height: 58,
       borderRadius: 20,
       padding: const EdgeInsets.symmetric(horizontal: 20),
+      backgroundColor: depotTerminal,
       child: Row(
         children: [
           Expanded(
@@ -487,6 +574,7 @@ class _TerminalPanelState extends State<_TerminalPanel> {
       height: 260,
       borderRadius: 20,
       padding: EdgeInsets.zero,
+      backgroundColor: depotTerminal,
       child: Column(
         children: [
           Container(
@@ -592,6 +680,7 @@ class _FramePanel extends StatelessWidget {
     this.height,
     this.padding = const EdgeInsets.all(18),
     this.borderRadius = 24,
+    this.backgroundColor,
   });
 
   final Widget child;
@@ -599,6 +688,42 @@ class _FramePanel extends StatelessWidget {
   final double? height;
   final EdgeInsetsGeometry padding;
   final double borderRadius;
+  final Color? backgroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return DepotCard(
+      width: width,
+      height: height,
+      padding: padding,
+      borderRadius: borderRadius,
+      backgroundColor: backgroundColor,
+      child: child,
+    );
+  }
+}
+
+class DepotCard extends StatelessWidget {
+  const DepotCard({
+    required this.child,
+    this.width,
+    this.height,
+    this.padding = const EdgeInsets.all(22),
+    this.borderRadius = 26,
+    this.shadowBlurRadius = 28,
+    this.shadowOffset = const Offset(0, 16),
+    this.backgroundColor,
+    super.key,
+  });
+
+  final Widget child;
+  final double? width;
+  final double? height;
+  final EdgeInsetsGeometry padding;
+  final double borderRadius;
+  final double shadowBlurRadius;
+  final Offset shadowOffset;
+  final Color? backgroundColor;
 
   @override
   Widget build(BuildContext context) {
@@ -607,14 +732,14 @@ class _FramePanel extends StatelessWidget {
       height: height,
       padding: padding,
       decoration: BoxDecoration(
-        color: depotPanel.withValues(alpha: 0.88),
+        color: backgroundColor ?? depotPanel.withValues(alpha: depotCardAlpha),
         borderRadius: BorderRadius.circular(borderRadius),
-        border: Border.all(color: depotLine.withValues(alpha: 0.76)),
+        border: Border.all(color: depotLine.withValues(alpha: depotCardBorderAlpha)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.24),
-            blurRadius: 24,
-            offset: const Offset(0, 14),
+            color: Colors.black.withValues(alpha: depotCardShadowAlpha),
+            blurRadius: shadowBlurRadius,
+            offset: shadowOffset,
           ),
         ],
       ),

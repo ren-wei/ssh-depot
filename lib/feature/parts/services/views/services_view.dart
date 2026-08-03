@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../classes/overview_snapshot.dart';
 import '../../../components/app_scope.dart';
 import '../../../components/app_shell.dart';
 import '../../../components/depot_content.dart';
 import '../../../components/depot_scrollbar.dart';
+import '../../../components/depot_snack_bar.dart';
 import '../../../cubits/app_controller.dart';
 
 class ServicesView extends StatefulWidget {
@@ -444,6 +446,20 @@ class _ServiceLogsPanelState extends State<_ServiceLogsPanel> {
                 ),
                 if (widget.isRunning && widget.service != null)
                   const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                const SizedBox(width: 10),
+                TextButton.icon(
+                  onPressed: widget.output.trim().isEmpty ? null : () => _copyForAi(context),
+                  icon: const Icon(Icons.copy, size: 14),
+                  label: const Text('Copy for ai'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: depotText,
+                    disabledForegroundColor: depotMuted.withValues(alpha: 0.5),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 30),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+                  ),
+                ),
               ],
             ),
           ),
@@ -473,6 +489,26 @@ class _ServiceLogsPanelState extends State<_ServiceLogsPanel> {
         ],
       ),
     );
+  }
+
+  Future<void> _copyForAi(BuildContext context) async {
+    final service = widget.service?.trim().isEmpty == false ? widget.service!.trim() : '未知服务';
+    final output = widget.output.trimRight().isEmpty ? '暂无日志输出' : widget.output.trimRight();
+    final content = '''
+请分析下面这次 ssh-depot 服务日志输出，定位问题原因并给出修复建议：
+
+服务：$service
+命令：journalctl -u $service --no-pager -n 80
+
+```text
+$output
+```
+''';
+    await Clipboard.setData(ClipboardData(text: content.trim()));
+    if (!context.mounted) {
+      return;
+    }
+    showDepotSnackBar(context, '已复制服务日志和分析提示词');
   }
 }
 

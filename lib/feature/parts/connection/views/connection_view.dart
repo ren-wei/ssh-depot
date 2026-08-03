@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../../assets/connection_asset.dart';
 import '../../../classes/server_profile.dart';
 import '../../../components/app_scope.dart';
+import '../../../components/depot_snack_bar.dart';
 import '../../../components/depot_scrollbar.dart';
 import '../../../cubits/app_controller.dart';
 import '../../../utils/shell_quote.dart';
@@ -484,24 +485,7 @@ fi
   }
 
   void _showConnectionSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          message,
-          style: TextStyle(
-            color: _text.withValues(alpha: 0.92),
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        backgroundColor: _panel,
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.all(18),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-          side: const BorderSide(color: _lineDim),
-        ),
-      ),
-    );
+    showDepotSnackBar(context, message);
   }
 
   void _fillServer(ServerProfile server) {
@@ -1135,9 +1119,7 @@ $block
     if (!context.mounted) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('已复制最后一条命令和输出')),
-    );
+    showDepotSnackBar(context, '已复制最后一条命令和输出');
   }
 
   String _lastCommandBlock(String text) {
