@@ -13,6 +13,7 @@ dependencies:
   go_router: ^16.0.0
   path: ^1.9.1
   path_provider: ^2.1.5
+  pty2: ^0.5.2
   xterm: ^4.0.0
   yaml: ^3.1.3
 

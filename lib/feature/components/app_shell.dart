@@ -2,6 +2,7 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:xterm/xterm.dart';
 
 import '../cubits/app_controller.dart';
 import '../parts/connection/views/connection_view.dart';
@@ -529,13 +530,14 @@ class _TerminalPanel extends StatefulWidget {
 }
 
 class _TerminalPanelState extends State<_TerminalPanel> {
-  final _scrollController = ScrollController();
+  final _terminal = Terminal(maxLines: 10000);
+  final _terminalController = TerminalController();
   AppController? _controller;
+  int _writtenLength = 0;
 
   @override
   void initState() {
     super.initState();
-    _scrollToBottom();
   }
 
   @override
@@ -548,28 +550,42 @@ class _TerminalPanelState extends State<_TerminalPanel> {
     _controller?.removeListener(_scrollToBottom);
     _controller = nextController;
     nextController.addListener(_scrollToBottom);
+    _syncTerminal(nextController.terminalRawText);
   }
 
   @override
   void dispose() {
     _controller?.removeListener(_scrollToBottom);
-    _scrollController.dispose();
+    _terminalController.dispose();
     super.dispose();
   }
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) {
+      final controller = _controller;
+      if (controller == null) {
         return;
       }
-      _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+      _syncTerminal(controller.terminalRawText);
     });
+  }
+
+  void _syncTerminal(String rawText) {
+    if (rawText.length < _writtenLength) {
+      _terminal.eraseDisplay();
+      _terminal.setCursor(0, 0);
+      _writtenLength = 0;
+    }
+    if (rawText.length == _writtenLength) {
+      return;
+    }
+    _terminal.write(rawText.substring(_writtenLength));
+    _writtenLength = rawText.length;
   }
 
   @override
   Widget build(BuildContext context) {
     final controller = _controller ?? AppScope.of(context);
-    final text = controller.terminalLines.join();
     return _FramePanel(
       height: 260,
       borderRadius: 20,
@@ -598,38 +614,78 @@ class _TerminalPanelState extends State<_TerminalPanel> {
             ),
           ),
           Expanded(
-            child: DepotScrollbar(
-              controller: _scrollController,
-              child: SingleChildScrollView(
-                controller: _scrollController,
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-                child: Align(
-                  alignment: Alignment.topLeft,
-                  child: SelectableText(
-                    text.isEmpty ? '暂无输出' : text,
-                    textAlign: TextAlign.left,
-                    style: const TextStyle(
-                      color: Color(0xffd6eadf),
-                      fontFamily: 'monospace',
+            child: controller.terminalRawText.isEmpty
+                ? const Align(
+                    alignment: Alignment.topLeft,
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(12, 12, 12, 10),
+                      child: Text(
+                        '暂无输出',
+                        style: TextStyle(
+                          color: depotMuted,
+                          fontFamily: 'monospace',
+                          fontSize: 13,
+                          height: 1.45,
+                        ),
+                      ),
+                    ),
+                  )
+                : TerminalView(
+                    _terminal,
+                    controller: _terminalController,
+                    theme: _depotTerminalTheme,
+                    textStyle: const TerminalStyle(
+                      fontSize: 13,
+                      height: 1.25,
+                      fontFamily: 'Menlo',
                       fontFamilyFallback: [
-                        'Noto Sans Mono CJK SC',
+                        'Monaco',
+                        'SF Mono',
+                        'Consolas',
+                        'Liberation Mono',
+                        'Courier New',
                         'Noto Sans CJK SC',
                         'Noto Sans CJK',
                         'WenQuanYi Micro Hei',
+                        'monospace',
                       ],
-                      fontSize: 13,
-                      height: 1.45,
                     ),
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+                    readOnly: true,
+                    autofocus: false,
                   ),
-                ),
-              ),
-            ),
           ),
         ],
       ),
     );
   }
 }
+
+const _depotTerminalTheme = TerminalTheme(
+  cursor: depotAccent,
+  selection: Color(0x663fe09a),
+  foreground: Color(0xffd6eadf),
+  background: depotTerminal,
+  black: Color(0xff06170f),
+  red: depotRed,
+  green: depotAccent,
+  yellow: depotYellow,
+  blue: depotBlue,
+  magenta: Color(0xffd88cff),
+  cyan: Color(0xff77e6d4),
+  white: depotText,
+  brightBlack: depotMuted,
+  brightRed: Color(0xffff8cab),
+  brightGreen: Color(0xff7df5bd),
+  brightYellow: Color(0xffffdd85),
+  brightBlue: Color(0xff8ed8ff),
+  brightMagenta: Color(0xffe8b2ff),
+  brightCyan: Color(0xffa8fff0),
+  brightWhite: Colors.white,
+  searchHitBackground: Color(0x6655bde8),
+  searchHitBackgroundCurrent: Color(0x993fe09a),
+  searchHitForeground: depotText,
+);
 
 class _PillButton extends StatelessWidget {
   const _PillButton({required this.label, required this.icon, required this.onPressed});

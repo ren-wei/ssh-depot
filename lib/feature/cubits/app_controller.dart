@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../../core/process/local_process_runner.dart';
 import '../../core/process/process_output_chunk.dart';
 import '../../core/terminal/terminal_line_buffer.dart';
+import '../../core/terminal/terminal_raw_output.dart';
 import '../classes/nginx_site.dart';
 import '../classes/nginx_template_definition.dart';
 import '../classes/overview_snapshot.dart';
@@ -43,6 +44,7 @@ class AppController extends ChangeNotifier {
   final OperationQueue _queue;
   final TerminalLineBuffer _lineBuffer = TerminalLineBuffer();
   final List<String> _terminalLines = [];
+  final List<String> _terminalRawLines = [];
   final List<OperationRecord> _recentOperations = [];
 
   List<ServerProfile> servers = [];
@@ -61,6 +63,7 @@ class AppController extends ChangeNotifier {
   String statusLine = '空闲';
 
   List<String> get terminalLines => List.unmodifiable(_terminalLines);
+  String get terminalRawText => _terminalRawLines.join();
   List<OperationRecord> get recentOperations => List.unmodifiable(_recentOperations);
   bool get isConnected => target != null;
   List<TemplateManifest> get nginxTemplates => builtInNginxTemplates;
@@ -271,14 +274,19 @@ class AppController extends ChangeNotifier {
     );
   }
 
-  Future<int> _runConnectionTest(String cleanHost, String cleanUser) {
+  Future<int> _runConnectionTest(String cleanHost, String cleanUser) async {
     final nextTarget = SshTarget(host: cleanHost, user: cleanUser);
-    return _runOnTarget(
+    final shouldCloseAfterTest = target == null;
+    final exitCode = await _runOnTarget(
       target: nextTarget,
       summary: '测试连接',
       command: 'echo __ssh-depot_ok__',
       timeout: const Duration(seconds: 12),
     );
+    if (shouldCloseAfterTest) {
+      await _sshExecutor.closeMaster(target: nextTarget, onOutput: (_) {});
+    }
+    return exitCode;
   }
 
   Future<int> _openMasterAndVerify(SshTarget nextTarget) {
@@ -886,7 +894,7 @@ class AppController extends ChangeNotifier {
   }
 
   void cancelRunning() {
-    if (_processRunner.killActive()) {
+    if (_sshExecutor.interruptActive()) {
       isRunning = false;
       _setStatus('⏹ 操作已取消');
     }
@@ -977,11 +985,12 @@ class AppController extends ChangeNotifier {
   }
 
   void _appendOutput(ProcessOutputChunk chunk) {
-    _appendTerminal(chunk.text);
+    _appendTerminal(chunk.text, rawText: chunk.rawText);
   }
 
-  void _appendTerminal(String text) {
+  void _appendTerminal(String text, {String? rawText}) {
     _terminalLines.add(text);
+    _terminalRawLines.add(TerminalRawOutput.normalizeForXterm(rawText ?? text));
     _lineBuffer.append(text);
     if (isRunning && _lineBuffer.lastVisibleLine.isNotEmpty) {
       statusLine = _lineBuffer.lastVisibleLine;
@@ -1053,6 +1062,7 @@ class AppController extends ChangeNotifier {
 
   void _clearConnectionRuntimeCache() {
     _terminalLines.clear();
+    _terminalRawLines.clear();
     _lineBuffer.clear();
     _recentOperations.clear();
     nginxSites = const [];

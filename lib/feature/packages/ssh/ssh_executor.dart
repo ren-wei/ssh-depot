@@ -1,40 +1,22 @@
 import '../../../core/process/local_process_runner.dart';
 import '../../../core/process/process_output_chunk.dart';
+import 'pty_ssh_session.dart';
 import 'ssh_command.dart';
 import 'ssh_target.dart';
 
 class SshExecutor {
-  const SshExecutor({required LocalProcessRunner processRunner}) : _processRunner = processRunner;
+  SshExecutor({required LocalProcessRunner processRunner}) : _processRunner = processRunner;
 
   final LocalProcessRunner _processRunner;
+  final PtySshSession _ptySession = PtySshSession();
 
   Future<int> openMaster({
     required SshTarget target,
     required void Function(ProcessOutputChunk chunk) onOutput,
     Duration? timeout,
   }) {
-    final controlPath = target.controlPath;
-    if (controlPath == null || controlPath.isEmpty) {
-      throw ArgumentError('controlPath is required to open SSH master connection.');
-    }
-
-    return _processRunner.start(
-      executable: 'ssh',
-      arguments: [
-        '-o',
-        'BatchMode=yes',
-        '-o',
-        'ConnectTimeout=10',
-        '-o',
-        'ControlMaster=yes',
-        '-o',
-        'ControlPersist=yes',
-        '-S',
-        controlPath,
-        '-N',
-        '-f',
-        target.address,
-      ],
+    return _ptySession.open(
+      target: target,
       timeout: timeout,
       onOutput: onOutput,
     );
@@ -44,25 +26,37 @@ class SshExecutor {
     required SshTarget target,
     required void Function(ProcessOutputChunk chunk) onOutput,
   }) {
-    final controlPath = target.controlPath;
-    if (controlPath == null || controlPath.isEmpty) {
-      return Future.value(0);
-    }
+    _ptySession.close();
+    return Future.value(0);
+  }
 
-    return _processRunner.start(
-      executable: 'ssh',
-      arguments: [
-        '-S',
-        controlPath,
-        '-O',
-        'exit',
-        target.address,
-      ],
+  Future<int> run({
+    required SshTarget target,
+    required SshCommand command,
+    required void Function(ProcessOutputChunk chunk) onOutput,
+  }) async {
+    if (!_ptySession.matches(target) || !_ptySession.isOpen) {
+      final openExitCode = await _ptySession.open(
+        target: target,
+        timeout: const Duration(seconds: 12),
+        onOutput: onOutput,
+      );
+      if (openExitCode != 0) {
+        return openExitCode;
+      }
+    }
+    return _ptySession.run(
+      command: command.command,
+      timeout: command.timeout,
       onOutput: onOutput,
     );
   }
 
-  Future<int> run({
+  bool interruptActive() {
+    return _ptySession.interrupt() || _processRunner.killActive();
+  }
+
+  Future<int> runDetached({
     required SshTarget target,
     required SshCommand command,
     required void Function(ProcessOutputChunk chunk) onOutput,
