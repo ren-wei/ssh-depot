@@ -40,20 +40,16 @@ class TerminalControlSanitizer {
           if (value.isNotEmpty) {
             currentLine = StringBuffer(value.substring(0, value.length - 1));
           }
-          break;
         case 0x0d:
           final nextIsLf = index + 1 < withoutEscapes.length && withoutEscapes.codeUnitAt(index + 1) == 0x0a;
           flushLine(newline: true);
           if (nextIsLf) {
             index += 1;
           }
-          break;
         case 0x0a:
           flushLine(newline: true);
-          break;
         case 0x09:
           currentLine.write('\t');
-          break;
         default:
           if (codeUnit >= 0x20) {
             currentLine.writeCharCode(codeUnit);

@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'config_paths.dart';
+import 'package:ssh_depot/feature/packages/local_config/config_paths.dart';
 
 class PreferencesStore {
   const PreferencesStore({required ConfigPaths paths}) : _paths = paths;

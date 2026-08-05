@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:yaml/yaml.dart';
 
-import 'config_paths.dart';
+import 'package:ssh_depot/feature/packages/local_config/config_paths.dart';
 
 class ServicePreferencesStore {
   const ServicePreferencesStore({required ConfigPaths paths}) : _paths = paths;
@@ -22,12 +22,10 @@ class ServicePreferencesStore {
 
     final servicesByTarget = parsed['servicesByTarget'];
     if (servicesByTarget is YamlMap) {
-      final services = servicesByTarget[target];
-      return _parseServices(services);
+      return _parseServices(servicesByTarget[target]);
     }
 
-    final services = parsed['services'];
-    return _parseServices(services);
+    return _parseServices(parsed['services']);
   }
 
   Future<void> save(String target, List<String> services) async {
@@ -62,7 +60,7 @@ class ServicePreferencesStore {
 
   List<String> _parseServices(Object? services) {
     if (services is! YamlList) {
-      return const ['nginx'];
+      return const ['nginx.service'];
     }
 
     final values = _normalizeServices([
@@ -75,7 +73,7 @@ class ServicePreferencesStore {
   List<String> _normalizeServices(List<String> services) {
     return [
       for (final service in services) service.trim(),
-    ].where((service) => service.isNotEmpty).toSet().toList();
+    ].where((service) => service.isNotEmpty).toSet().toList(growable: false);
   }
 
   List<String> _normalizedOrDefault(List<String> services) {

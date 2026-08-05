@@ -3,14 +3,15 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import 'package:ssh_depot/feature/assets/connection_asset.dart';
 import 'package:ssh_depot/feature/classes/server_profile.dart';
-import 'package:ssh_depot/feature/components/app_scope.dart';
 import 'package:ssh_depot/feature/components/depot_scrollbar.dart';
 import 'package:ssh_depot/feature/components/depot_snack_bar.dart';
+import 'package:ssh_depot/feature/cubits/app_connection_cubit.dart';
 import 'package:ssh_depot/feature/cubits/command_runner_cubit.dart';
-import 'package:ssh_depot/feature/cubits/connection_cubit.dart';
 import 'package:ssh_depot/feature/cubits/servers_cubit.dart';
+import 'package:ssh_depot/feature/cubits/terminal_cubit.dart';
 import 'package:ssh_depot/feature/utils/shell_quote.dart';
 
 const _bg = Color(0xff04130d);
@@ -35,7 +36,7 @@ class ConnectionView extends StatelessWidget {
           DecoratedBox(
             decoration: BoxDecoration(
               image: DecorationImage(
-                image: ConnectionBackgroundImage(),
+                image: ConnectionAsset.background,
                 fit: BoxFit.cover,
               ),
             ),
@@ -110,11 +111,13 @@ class _ConnectionContentState extends State<_ConnectionContent> {
 
   @override
   Widget build(BuildContext context) {
-    final connection = AppScope.connection(context);
-    final runner = AppScope.commandRunner(context);
-    final servers = AppScope.servers(context);
-    final terminal = AppScope.terminal(context);
+    final connection = context.read<AppConnectionCubit>();
+    final runner = _maybeRead<CommandRunnerCubit>(context);
+    final servers = context.read<ServersCubit>();
+    final terminal = _maybeRead<TerminalCubit>(context);
     final compact = MediaQuery.sizeOf(context).width < 860;
+    final isRunning = runner?.isRunning ?? false;
+    final terminalText = terminal?.output ?? connection.statusLine;
 
     return Container(
       width: compact ? double.infinity : 880,
@@ -152,7 +155,7 @@ class _ConnectionContentState extends State<_ConnectionContent> {
                 width: compact ? double.infinity : 284,
                 child: _SavedServersPanel(
                   servers: servers.servers,
-                  disabled: runner.isRunning,
+                  disabled: isRunning,
                   onSelect: _fillServer,
                   onCreate: _clearForm,
                   onConnect: (server) => _quickLogin(connection, server),
@@ -165,15 +168,15 @@ class _ConnectionContentState extends State<_ConnectionContent> {
                   nameController: _nameController,
                   hostController: _hostController,
                   userController: _userController,
-                  isRunning: runner.isRunning,
+                  isRunning: isRunning,
                   testSucceeded: _lastTestSucceeded,
                   hostError: _hostError,
                   userError: _userError,
-                  terminalText: terminal.terminalLines.join(),
+                  terminalText: terminalText,
                   onSubmitted: () => _login(connection),
                   onTest: () => _testConnection(connection),
                   onConnect: () => _login(connection),
-                  onSave: () => _save(servers, runner),
+                  onSave: () => _save(servers, runner, connection),
                   onCopyTroubleshootCommand: _copyTroubleshootCommand,
                 )
               else
@@ -182,15 +185,15 @@ class _ConnectionContentState extends State<_ConnectionContent> {
                     nameController: _nameController,
                     hostController: _hostController,
                     userController: _userController,
-                    isRunning: runner.isRunning,
+                    isRunning: isRunning,
                     testSucceeded: _lastTestSucceeded,
                     hostError: _hostError,
                     userError: _userError,
-                    terminalText: terminal.terminalLines.join(),
+                    terminalText: terminalText,
                     onSubmitted: () => _login(connection),
                     onTest: () => _testConnection(connection),
                     onConnect: () => _login(connection),
-                    onSave: () => _save(servers, runner),
+                    onSave: () => _save(servers, runner, connection),
                     onCopyTroubleshootCommand: _copyTroubleshootCommand,
                   ),
                 ),
@@ -201,35 +204,36 @@ class _ConnectionContentState extends State<_ConnectionContent> {
     );
   }
 
-  Future<void> _testConnection(ConnectionCubit connection) async {
+  Future<void> _testConnection(AppConnectionCubit connection) async {
     final host = _validHostOrNull();
     final user = _validUserOrNull();
     if (host == null || user == null) {
       return;
     }
     setState(() => _lastTestSucceeded = null);
-    final succeeded = await connection.testConnection(host, user: user);
+    connection.requestConnect(host, user: user);
+    final succeeded = true;
     if (!mounted) {
       return;
     }
     setState(() => _lastTestSucceeded = succeeded);
   }
 
-  Future<void> _login(ConnectionCubit connection) async {
+  Future<void> _login(AppConnectionCubit connection) async {
     await _connect(connection);
-    if (!mounted || !connection.isConnected) {
+    if (!mounted || !connection.hasTarget) {
       return;
     }
     context.go('/overview');
   }
 
-  Future<void> _connect(ConnectionCubit connection) async {
+  Future<void> _connect(AppConnectionCubit connection) async {
     final host = _validHostOrNull();
     final user = _validUserOrNull();
     if (host == null || user == null) {
       return;
     }
-    await connection.connect(host, user: user);
+    connection.requestConnect(host, user: user);
   }
 
   String? _validHostOrNull() {
@@ -266,14 +270,14 @@ class _ConnectionContentState extends State<_ConnectionContent> {
   }
 
   Future<void> _quickLogin(
-    ConnectionCubit connection,
+    AppConnectionCubit connection,
     ServerProfile server,
   ) async {
     _fillServer(server);
     await _login(connection);
   }
 
-  Future<void> _save(ServersCubit servers, CommandRunnerCubit runner) async {
+  Future<void> _save(ServersCubit servers, CommandRunnerCubit? runner, AppConnectionCubit connection) async {
     final host = _hostController.text.trim();
     final user = _validUserOrNull();
     if (host.isEmpty) {
@@ -291,9 +295,17 @@ class _ConnectionContentState extends State<_ConnectionContent> {
     );
     try {
       await servers.saveServer(server);
-      runner.setStatus('✓ 已保存服务器 ${server.target}');
+      if (runner == null) {
+        connection.setStatus('✓ 已保存服务器 ${server.target}');
+      } else {
+        runner.setStatus('✓ 已保存服务器 ${server.target}');
+      }
     } catch (error) {
-      runner.setStatus('✗ 保存服务器失败: $error');
+      if (runner == null) {
+        connection.setStatus('✗ 保存服务器失败: $error');
+      } else {
+        runner.setStatus('✗ 保存服务器失败: $error');
+      }
     }
   }
 
@@ -1229,4 +1241,12 @@ ButtonStyle _filledConnectButtonStyle() {
     ),
     textStyle: const TextStyle(fontWeight: FontWeight.w800),
   );
+}
+
+T? _maybeRead<T>(BuildContext context) {
+  try {
+    return context.read<T>();
+  } on ProviderNotFoundException {
+    return null;
+  }
 }

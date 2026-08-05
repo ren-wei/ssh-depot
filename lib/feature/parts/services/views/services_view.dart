@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import 'package:ssh_depot/feature/classes/overview_snapshot.dart';
-import 'package:ssh_depot/feature/components/app_scope.dart';
-import 'package:ssh_depot/feature/components/app_shell.dart';
 import 'package:ssh_depot/feature/components/depot_content.dart';
 import 'package:ssh_depot/feature/components/depot_scrollbar.dart';
 import 'package:ssh_depot/feature/components/depot_snack_bar.dart';
+import 'package:ssh_depot/feature/cubits/command_runner_cubit.dart';
 import 'package:ssh_depot/feature/parts/services/cubits/services_cubit.dart';
+import 'package:ssh_depot/feature/shell/app_shell.dart';
 
 class ServicesView extends StatefulWidget {
   const ServicesView({super.key});
@@ -18,83 +19,84 @@ class ServicesView extends StatefulWidget {
 class _ServicesViewState extends State<ServicesView> {
   @override
   Widget build(BuildContext context) {
-    final connection = AppScope.connection(context);
-    final runner = AppScope.commandRunner(context);
-    final servicesCubit = AppScope.services(context);
-    final overview = AppScope.overview(context);
-    final services = servicesCubit.managedServices;
-    final disabled = !connection.isConnected || runner.isRunning;
-    final serviceSnapshots = {
-      for (final service in overview.overviewSnapshot?.services ?? const <ServiceSnapshot>[]) service.name: service,
-      ...servicesCubit.serviceSnapshots,
-    };
+    final runner = context.read<CommandRunnerCubit>();
+    final servicesCubit = context.read<ServicesCubit>();
+    return ListenableBuilder(
+      listenable: Listenable.merge([runner, servicesCubit]),
+      builder: (context, _) {
+        final services = servicesCubit.managedServices;
+        final disabled = runner.isRunning;
+        final serviceSnapshots = servicesCubit.serviceSnapshots;
 
-    return DepotContentPage(
-      title: '服务管理',
-      subtitle: '通过当前 SSH 连接执行 systemctl 与 journalctl 操作。',
-      actions: [
-        DepotStatusPill(
-          label: runner.isRunning ? '执行中' : (connection.isConnected ? '就绪' : '未连接'),
-          color: connection.isConnected ? depotAccent : depotYellow,
-        ),
-      ],
-      children: [
-        DepotPanel(
-          padding: const EdgeInsets.fromLTRB(28, 24, 28, 26),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              DepotSectionHeader(
-                title: '服务列表',
-                subtitle: services.length == 1 ? '默认服务 nginx，可手动添加更多服务。' : '共 ${services.length} 个服务。',
-              ),
-              const SizedBox(height: 18),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: FilledButton.icon(
-                  onPressed: () => _showAddServiceDialog(servicesCubit),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('添加服务'),
-                  style: depotFilledButtonStyle(),
-                ),
-              ),
-              const SizedBox(height: 18),
-              DepotRow(
-                height: 38,
-                padding: const EdgeInsets.symmetric(horizontal: 18),
-                child: Row(
-                  children: [
-                    Expanded(flex: 3, child: Text('服务', style: depotMutedText(context))),
-                    Expanded(flex: 2, child: Text('运行', style: depotMutedText(context))),
-                    Expanded(flex: 2, child: Text('自启', style: depotMutedText(context))),
-                    Expanded(flex: 4, child: Text('操作', textAlign: TextAlign.right, style: depotMutedText(context))),
+        return DepotContentPage(
+          title: '服务管理',
+          subtitle: '通过当前 SSH 连接执行 systemctl 与 journalctl 操作。',
+          actions: [
+            DepotStatusPill(
+              label: runner.isRunning ? '执行中' : '就绪',
+              color: depotAccent,
+            ),
+          ],
+          children: [
+            DepotPanel(
+              padding: const EdgeInsets.fromLTRB(28, 24, 28, 26),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  DepotSectionHeader(
+                    title: '服务列表',
+                    subtitle: services.length == 1 ? '默认服务 nginx，可手动添加更多服务。' : '共 ${services.length} 个服务。',
+                  ),
+                  const SizedBox(height: 18),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: FilledButton.icon(
+                      onPressed: () => _showAddServiceDialog(servicesCubit),
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('添加服务'),
+                      style: depotFilledButtonStyle(),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  DepotRow(
+                    height: 38,
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
+                    child: Row(
+                      children: [
+                        Expanded(flex: 3, child: Text('服务', style: depotMutedText(context))),
+                        Expanded(flex: 2, child: Text('运行', style: depotMutedText(context))),
+                        Expanded(flex: 2, child: Text('自启', style: depotMutedText(context))),
+                        Expanded(
+                            flex: 4, child: Text('操作', textAlign: TextAlign.right, style: depotMutedText(context))),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  for (final service in services) ...[
+                    _ServiceControlRow(
+                      service: service,
+                      snapshot: serviceSnapshots[service],
+                      disabled: disabled,
+                      onStart: () => _confirmServiceAction(servicesCubit, service, 'start'),
+                      onStop: () => _confirmServiceAction(servicesCubit, service, 'stop'),
+                      onRestart: () => _confirmServiceAction(servicesCubit, service, 'restart'),
+                      onLogs: () => servicesCubit.fetchServiceLogs(service),
+                      onRemove: () => _confirmRemoveService(servicesCubit, service),
+                    ),
+                    if (service != services.last) const SizedBox(height: 10),
                   ],
-                ),
+                ],
               ),
-              const SizedBox(height: 10),
-              for (final service in services) ...[
-                _ServiceControlRow(
-                  service: service,
-                  snapshot: serviceSnapshots[service],
-                  disabled: disabled,
-                  onStart: () => _confirmServiceAction(servicesCubit, service, 'start'),
-                  onStop: () => _confirmServiceAction(servicesCubit, service, 'stop'),
-                  onRestart: () => _confirmServiceAction(servicesCubit, service, 'restart'),
-                  onLogs: () => servicesCubit.fetchServiceLogs(service),
-                  onRemove: () => _confirmRemoveService(servicesCubit, service),
-                ),
-                if (service != services.last) const SizedBox(height: 10),
-              ],
-            ],
-          ),
-        ),
-        const SizedBox(height: 22),
-        _ServiceLogsPanel(
-          service: servicesCubit.serviceLogsService,
-          output: servicesCubit.serviceLogsOutput,
-          isRunning: runner.isRunning,
-        ),
-      ],
+            ),
+            const SizedBox(height: 22),
+            _ServiceLogsPanel(
+              service: servicesCubit.serviceLogsService,
+              output: servicesCubit.serviceLogsOutput,
+              isRunning: runner.isRunning,
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -371,7 +373,7 @@ class _ServiceControlRow extends StatelessWidget {
       ServiceStatus.active => depotAccent,
       ServiceStatus.failed => depotRed,
       ServiceStatus.inactive => depotMuted,
-      ServiceStatus.unknown => depotYellow,
+      ServiceStatus.activating || ServiceStatus.deactivating || ServiceStatus.unknown => depotYellow,
     };
     final enabled = snapshot?.enabled;
     final enabledColor = enabled == true ? depotBlue : depotMuted;
@@ -444,7 +446,7 @@ class _ServiceControlRow extends StatelessWidget {
           _MiniAction(label: '启动', icon: Icons.play_arrow, disabled: disabled, onPressed: onStart),
           logs,
         ],
-      ServiceStatus.unknown => [
+      ServiceStatus.activating || ServiceStatus.deactivating || ServiceStatus.unknown => [
           _MiniAction(label: '启动', icon: Icons.play_arrow, disabled: disabled, onPressed: onStart),
           _MiniAction(label: '停止', icon: Icons.stop_circle_outlined, disabled: disabled, onPressed: onStop),
           _MiniAction(label: '重启', icon: Icons.restart_alt, disabled: disabled, onPressed: onRestart),

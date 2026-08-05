@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:developer' as developer;
 import 'dart:io';
 import 'dart:math';
 
@@ -7,9 +6,10 @@ import 'package:pty2/pty2.dart';
 import 'package:ssh_depot/core/process/process_output_chunk.dart';
 import 'package:ssh_depot/core/terminal/terminal_control_sanitizer.dart';
 
+import 'shell_session.dart';
 import 'ssh_target.dart';
 
-class PtySshSession {
+class PtySshSession implements ShellSession {
   PseudoTerminal? _pty;
   StreamSubscription<String>? _outputSubscription;
   SshTarget? _target;
@@ -21,13 +21,16 @@ class PtySshSession {
   bool _isCapturingCommandOutput = false;
   bool _lastCommandRawEndedWithNewline = true;
 
+  @override
   bool get isOpen => _pty != null;
 
+  @override
   bool matches(SshTarget target) {
     final current = _target;
     return current != null && current.host == target.host && current.user == target.user;
   }
 
+  @override
   Future<int> open({
     required SshTarget target,
     required void Function(ProcessOutputChunk chunk) onOutput,
@@ -64,11 +67,12 @@ class PtySshSession {
       _lastCommandRawEndedWithNewline = true;
       _outputSubscription = pty.out.listen(_handleOutput, onError: (Object error) {
         final running = _runningCommand;
+        final chunk = ProcessOutputChunk(text: '$error\n', isStdErr: true);
         if (running != null && !running.completer.isCompleted) {
-          running.onOutput(ProcessOutputChunk(text: '$error\n', isStdErr: true));
+          running.onOutput(chunk);
           running.completer.complete(-1);
         } else {
-          onOutput(ProcessOutputChunk(text: '$error\n', isStdErr: true));
+          onOutput(chunk);
         }
       });
       unawaited(pty.exitCode.then((exitCode) {
@@ -76,9 +80,10 @@ class PtySshSession {
           return;
         }
         final running = _runningCommand;
+        final effectiveExitCode = exitCode == 0 ? -1 : exitCode;
         if (running != null && !running.completer.isCompleted) {
           running.onOutput(ProcessOutputChunk(text: '\nSSH 会话已退出: $exitCode\n', isStdErr: true));
-          running.completer.complete(exitCode == 0 ? -1 : exitCode);
+          running.completer.complete(effectiveExitCode);
         } else if (exitCode != 0) {
           _idleOutput?.call(ProcessOutputChunk(text: '\nSSH 会话已退出: $exitCode\n', isStdErr: true));
         }
@@ -101,6 +106,7 @@ class PtySshSession {
     }
   }
 
+  @override
   Future<int> run({
     required String command,
     required void Function(ProcessOutputChunk chunk) onOutput,
@@ -136,11 +142,7 @@ class PtySshSession {
           pty.write('\x03');
           running.completer.complete(-1);
         }
-        _runningCommand = null;
-        _pendingOutput = '';
-        _pendingRawOutput = '';
-        _isCapturingCommandOutput = false;
-        _lastCommandRawEndedWithNewline = true;
+        _resetRunningBuffers();
       });
     }
 
@@ -148,15 +150,12 @@ class PtySshSession {
     final exitCode = await running.completer.future;
     timer?.cancel();
     if (identical(_runningCommand, running)) {
-      _runningCommand = null;
-      _pendingOutput = '';
-      _pendingRawOutput = '';
-      _isCapturingCommandOutput = false;
-      _lastCommandRawEndedWithNewline = true;
+      _resetRunningBuffers();
     }
     return exitCode;
   }
 
+  @override
   bool interrupt() {
     final pty = _pty;
     if (pty == null) {
@@ -166,6 +165,7 @@ class PtySshSession {
     return true;
   }
 
+  @override
   void close() {
     _outputSubscription?.cancel();
     _outputSubscription = null;
@@ -184,9 +184,6 @@ class PtySshSession {
   void _handleOutput(String data) {
     final cleanData = _sanitizer.sanitize(data);
     final running = _runningCommand;
-    _debugLog(
-      'chunk raw=${_visible(data)} clean=${_visible(cleanData)} running=${running != null} capturing=$_isCapturingCommandOutput',
-    );
     if (cleanData.isEmpty) {
       if (running == null) {
         _idleOutput?.call(ProcessOutputChunk(text: '', rawText: data, isStdErr: false));
@@ -211,34 +208,22 @@ class PtySshSession {
 
     if (!_isCapturingCommandOutput) {
       final beginRange = standaloneMarkerRangeForTesting(_pendingOutput, beginMarker);
-      final beginIndex = beginRange?.start ?? -1;
-      if (beginIndex < 0) {
+      if (beginRange == null) {
         _trimPendingPrefix();
         return;
       }
-      _debugLog('begin marker matched at $beginIndex');
-      _pendingOutput = _pendingOutput.substring(beginRange!.end);
-      _pendingOutput = _stripLeadingNewline(_pendingOutput);
+      _pendingOutput = _stripLeadingNewline(_pendingOutput.substring(beginRange.end));
       final rawBeginRange = standaloneMarkerRangeForTesting(_pendingRawOutput, beginMarker);
-      if (rawBeginRange != null) {
-        _debugLog('raw begin marker matched at ${rawBeginRange.start}');
-        _pendingRawOutput = _pendingRawOutput.substring(rawBeginRange.end);
-        _pendingRawOutput = _stripLeadingNewline(_pendingRawOutput);
-      } else {
-        _pendingRawOutput = '';
-      }
+      _pendingRawOutput =
+          rawBeginRange == null ? '' : _stripLeadingNewline(_pendingRawOutput.substring(rawBeginRange.end));
       _isCapturingCommandOutput = true;
     }
 
     final endRange = standaloneEndMarkerRangeForTesting(_pendingOutput, endPrefix);
-    final endIndex = endRange?.start ?? -1;
-    if (endIndex < 0) {
+    if (endRange == null) {
       final outputEnd = completeLineEndForTesting(_pendingOutput);
       final rawEnd = completeLineEndForTesting(_pendingRawOutput);
       if (outputEnd > 0 && rawEnd > 0) {
-        _debugLog(
-          'emit complete line text=${_visible(_pendingOutput.substring(0, outputEnd))} raw=${_visible(_pendingRawOutput.substring(0, rawEnd))}',
-        );
         _emitCommandOutput(
           running,
           text: _pendingOutput.substring(0, outputEnd),
@@ -250,37 +235,39 @@ class PtySshSession {
       return;
     }
 
-    final commandOutput = _pendingOutput.substring(0, endIndex);
+    final commandOutput = _pendingOutput.substring(0, endRange.start);
     if (commandOutput.isNotEmpty) {
       final rawEndRange = standaloneEndMarkerRangeForTesting(_pendingRawOutput, endPrefix);
-      final rawOutput = rawEndRange != null ? _pendingRawOutput.substring(0, rawEndRange.start) : commandOutput;
+      final rawOutput = rawEndRange == null ? commandOutput : _pendingRawOutput.substring(0, rawEndRange.start);
       final chunk = commandOutputChunkForTesting(commandOutput: commandOutput, rawOutput: rawOutput);
-      _debugLog(
-          'end marker matched at $endIndex emit tail text=${_visible(chunk.text)} raw=${_visible(chunk.rawText)}');
       _emitCommandOutput(running, text: chunk.text, rawText: chunk.rawText);
     }
     if (needsBoundaryNewlineForTesting(lastRawEndedWithNewline: _lastCommandRawEndedWithNewline)) {
-      _debugLog('emit boundary newline before prompt');
       _emitCommandOutput(running, text: '', rawText: '\n');
     }
-    final afterPrefix = _pendingOutput.substring(endRange!.start + endPrefix.length);
+
+    final afterPrefix = _pendingOutput.substring(endRange.start + endPrefix.length);
     final exitMatch = RegExp(r'^(-?\d+)').firstMatch(afterPrefix);
     final exitCode = int.tryParse(exitMatch?.group(1) ?? '') ?? -1;
     if (!running.completer.isCompleted) {
       running.completer.complete(exitCode);
     }
-    _pendingOutput = '';
-    _pendingRawOutput = '';
-    _isCapturingCommandOutput = false;
-    _lastCommandRawEndedWithNewline = true;
+    _resetRunningBuffers();
   }
 
   void _emitCommandOutput(_RunningCommand running, {required String text, required String rawText}) {
-    _debugLog('emit output text=${_visible(text)} raw=${_visible(rawText)}');
     running.onOutput(ProcessOutputChunk(text: text, rawText: rawText, isStdErr: false));
     if (rawText.isNotEmpty) {
       _lastCommandRawEndedWithNewline = _endsWithNewline(rawText);
     }
+  }
+
+  void _resetRunningBuffers() {
+    _runningCommand = null;
+    _pendingOutput = '';
+    _pendingRawOutput = '';
+    _isCapturingCommandOutput = false;
+    _lastCommandRawEndedWithNewline = true;
   }
 
   void _trimPendingPrefix() {
@@ -313,11 +300,30 @@ class PtySshSession {
     return value.replaceFirst(RegExp(r'^(?:\r\n|\n|\r)+'), '');
   }
 
+  void _clearSessionState({required bool keepPty}) {
+    _outputSubscription?.cancel();
+    _outputSubscription = null;
+    _runningCommand = null;
+    _target = null;
+    _idleOutput = null;
+    _pendingOutput = '';
+    _pendingRawOutput = '';
+    _isCapturingCommandOutput = false;
+    _lastCommandRawEndedWithNewline = true;
+    if (!keepPty) {
+      _pty = null;
+    }
+  }
+
   static ProcessOutputChunk commandOutputChunkForTesting({
     required String commandOutput,
     required String rawOutput,
   }) {
-    return ProcessOutputChunk(text: _stripTrailingNewlineStatic(commandOutput), rawText: rawOutput, isStdErr: false);
+    return ProcessOutputChunk(
+      text: _stripTrailingNewlineStatic(commandOutput),
+      rawText: rawOutput,
+      isStdErr: false,
+    );
   }
 
   static bool needsBoundaryNewlineForTesting({required bool lastRawEndedWithNewline}) {
@@ -386,38 +392,12 @@ class PtySshSession {
     return codeUnit == 0x0a || codeUnit == 0x0d;
   }
 
-  static bool _endsWithNewline(String value) {
-    return value.endsWith('\n') || value.endsWith('\r');
-  }
-
-  static void _debugLog(String message) {
-    assert(() {
-      developer.log(message, name: 'ssh_depot.pty');
-      return true;
-    }());
-  }
-
-  static String _visible(String value) {
-    return value.replaceAll('\x1B', r'\x1B').replaceAll('\r', r'\r').replaceAll('\n', r'\n').replaceAll('\t', r'\t');
-  }
-
   static String _stripTrailingNewlineStatic(String value) {
     return value.replaceFirst(RegExp(r'(?:\r\n|\n|\r)+$'), '');
   }
 
-  void _clearSessionState({required bool keepPty}) {
-    _outputSubscription?.cancel();
-    _outputSubscription = null;
-    _runningCommand = null;
-    _target = null;
-    _idleOutput = null;
-    _pendingOutput = '';
-    _pendingRawOutput = '';
-    _isCapturingCommandOutput = false;
-    _lastCommandRawEndedWithNewline = true;
-    if (!keepPty) {
-      _pty = null;
-    }
+  static bool _endsWithNewline(String value) {
+    return value.endsWith('\n') || value.endsWith('\r');
   }
 }
 

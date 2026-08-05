@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import 'package:ssh_depot/feature/classes/nginx_site.dart';
-import 'package:ssh_depot/feature/components/app_scope.dart';
-import 'package:ssh_depot/feature/components/app_shell.dart';
+import 'package:ssh_depot/feature/classes/remote_command_result.dart';
 import 'package:ssh_depot/feature/components/depot_content.dart';
 import 'package:ssh_depot/feature/components/depot_scrollbar.dart';
 import 'package:ssh_depot/feature/components/depot_snack_bar.dart';
+import 'package:ssh_depot/feature/cubits/command_runner_cubit.dart';
 import 'package:ssh_depot/feature/parts/ssl/cubits/ssl_cubit.dart';
+import 'package:ssh_depot/feature/shell/app_shell.dart';
 
 class SslView extends StatefulWidget {
   const SslView({super.key});
@@ -27,9 +29,8 @@ class _SslViewState extends State<SslView> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final connection = AppScope.connection(context);
-    final ssl = AppScope.ssl(context);
-    if (!_requestedInitialRefresh && connection.isConnected && ssl.nginxCertificates.isEmpty) {
+    final ssl = context.read<SslCubit>();
+    if (!_requestedInitialRefresh && ssl.nginxCertificates.isEmpty) {
       _requestedInitialRefresh = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -50,175 +51,182 @@ class _SslViewState extends State<SslView> {
 
   @override
   Widget build(BuildContext context) {
-    final connection = AppScope.connection(context);
-    final runner = AppScope.commandRunner(context);
-    final controller = AppScope.ssl(context);
-    final disabled = !connection.isConnected || runner.isRunning;
-    final certificates = controller.nginxCertificates;
+    final runner = context.read<CommandRunnerCubit>();
+    final controller = context.read<SslCubit>();
+    return ListenableBuilder(
+      listenable: Listenable.merge([runner, controller]),
+      builder: (context, _) {
+        final disabled = runner.isRunning;
+        final certificates = controller.nginxCertificates;
 
-    return DepotContentPage(
-      title: '证书管理',
-      subtitle: '管理当前服务器上的 certbot 证书资产；网站列表只展示证书状态。',
-      actions: [
-        DepotStatusPill(
-          label: runner.isRunning ? '执行中' : (connection.isConnected ? '就绪' : '未连接'),
-          color: connection.isConnected ? depotAccent : depotYellow,
-        ),
-      ],
-      children: [
-        DepotPanel(
-          padding: const EdgeInsets.fromLTRB(28, 24, 28, 26),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              DepotSectionHeader(
-                title: '申请证书',
-                subtitle: '默认使用 Nginx 自动配置；多个域名可用逗号或空格分隔。',
-                trailing: OutlinedButton.icon(
-                  onPressed: disabled ? null : () => _run(controller.checkCertificateEnvironment),
-                  icon: const Icon(Icons.health_and_safety_outlined, size: 18),
-                  label: const Text('环境检查'),
-                  style: depotOutlinedButtonStyle(),
-                ),
-              ),
-              const SizedBox(height: 18),
-              Row(
+        return DepotContentPage(
+          title: '证书管理',
+          subtitle: '管理当前服务器上的 certbot 证书资产；网站列表只展示证书状态。',
+          actions: [
+            DepotStatusPill(
+              label: runner.isRunning ? '执行中' : '就绪',
+              color: depotAccent,
+            ),
+          ],
+          children: [
+            DepotPanel(
+              padding: const EdgeInsets.fromLTRB(28, 24, 28, 26),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _domainsController,
+                  DepotSectionHeader(
+                    title: '申请证书',
+                    subtitle: '默认使用 Nginx 自动配置；多个域名可用逗号或空格分隔。',
+                    trailing: OutlinedButton.icon(
+                      onPressed: disabled ? null : () => _run(controller.checkCertificateEnvironment),
+                      icon: const Icon(Icons.health_and_safety_outlined, size: 18),
+                      label: const Text('环境检查'),
+                      style: depotOutlinedButtonStyle(),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _domainsController,
+                          style: const TextStyle(color: depotText, fontWeight: FontWeight.w700),
+                          decoration:
+                              depotInputDecoration('域名', hint: 'example.com, www.example.com', icon: Icons.public),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: _emailController,
+                          style: const TextStyle(color: depotText, fontWeight: FontWeight.w700),
+                          decoration: depotInputDecoration('邮箱', hint: 'admin@example.com', icon: Icons.mail_outline),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      FilterChip(
+                        selected: !_useWebroot,
+                        onSelected: disabled ? null : (_) => setState(() => _useWebroot = false),
+                        label: const Text('Nginx 自动配置'),
+                        selectedColor: depotAccent,
+                        backgroundColor: depotPanelAlt.withValues(alpha: depotMutedSurfaceStrongAlpha),
+                        side: const BorderSide(color: depotLineDim),
+                        labelStyle: TextStyle(
+                          color: !_useWebroot ? const Color(0xff06311f) : depotText,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      FilterChip(
+                        selected: _useWebroot,
+                        onSelected: disabled ? null : (_) => setState(() => _useWebroot = true),
+                        label: const Text('Webroot'),
+                        selectedColor: depotAccent,
+                        backgroundColor: depotPanelAlt.withValues(alpha: depotMutedSurfaceStrongAlpha),
+                        side: const BorderSide(color: depotLineDim),
+                        labelStyle: TextStyle(
+                          color: _useWebroot ? const Color(0xff06311f) : depotText,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const Spacer(),
+                      FilledButton.icon(
+                        onPressed: disabled ? null : () => _confirmRequestCertificate(controller),
+                        icon: runner.isRunning
+                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                            : const Icon(Icons.verified_user_outlined, size: 18),
+                        label: const Text('申请并配置 HTTPS'),
+                        style: depotFilledButtonStyle(),
+                      ),
+                    ],
+                  ),
+                  if (_useWebroot) ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _webrootController,
                       style: const TextStyle(color: depotText, fontWeight: FontWeight.w700),
-                      decoration: depotInputDecoration('域名', hint: 'example.com, www.example.com', icon: Icons.public),
+                      decoration:
+                          depotInputDecoration('Webroot 路径', hint: '/var/www/html', icon: Icons.folder_outlined),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      controller: _emailController,
-                      style: const TextStyle(color: depotText, fontWeight: FontWeight.w700),
-                      decoration: depotInputDecoration('邮箱', hint: 'admin@example.com', icon: Icons.mail_outline),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  FilterChip(
-                    selected: !_useWebroot,
-                    onSelected: disabled ? null : (_) => setState(() => _useWebroot = false),
-                    label: const Text('Nginx 自动配置'),
-                    selectedColor: depotAccent,
-                    backgroundColor: depotPanelAlt.withValues(alpha: depotMutedSurfaceStrongAlpha),
-                    side: const BorderSide(color: depotLineDim),
-                    labelStyle: TextStyle(
-                      color: !_useWebroot ? const Color(0xff06311f) : depotText,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  FilterChip(
-                    selected: _useWebroot,
-                    onSelected: disabled ? null : (_) => setState(() => _useWebroot = true),
-                    label: const Text('Webroot'),
-                    selectedColor: depotAccent,
-                    backgroundColor: depotPanelAlt.withValues(alpha: depotMutedSurfaceStrongAlpha),
-                    side: const BorderSide(color: depotLineDim),
-                    labelStyle: TextStyle(
-                      color: _useWebroot ? const Color(0xff06311f) : depotText,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const Spacer(),
-                  FilledButton.icon(
-                    onPressed: disabled ? null : () => _confirmRequestCertificate(controller),
-                    icon: runner.isRunning
-                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.verified_user_outlined, size: 18),
-                    label: const Text('申请并配置 HTTPS'),
-                    style: depotFilledButtonStyle(),
-                  ),
-                ],
-              ),
-              if (_useWebroot) ...[
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _webrootController,
-                  style: const TextStyle(color: depotText, fontWeight: FontWeight.w700),
-                  decoration: depotInputDecoration('Webroot 路径', hint: '/var/www/html', icon: Icons.folder_outlined),
-                ),
-              ],
-            ],
-          ),
-        ),
-        const SizedBox(height: 22),
-        DepotPanel(
-          padding: const EdgeInsets.fromLTRB(28, 24, 28, 26),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              DepotSectionHeader(
-                title: '证书列表',
-                subtitle: certificates.isEmpty ? '暂无证书，点击刷新读取 certbot 证书。' : '共 ${certificates.length} 个证书。',
-                trailing: FilledButton.icon(
-                  onPressed: disabled ? null : controller.refreshCertificates,
-                  icon: const Icon(Icons.refresh, size: 18),
-                  label: const Text('刷新'),
-                  style: depotFilledButtonStyle(),
-                ),
-              ),
-              const SizedBox(height: 18),
-              DepotRow(
-                height: 38,
-                padding: const EdgeInsets.symmetric(horizontal: 18),
-                child: Row(
-                  children: [
-                    Expanded(flex: 4, child: Text('证书', style: depotMutedText(context))),
-                    Expanded(flex: 2, child: Text('状态', style: depotMutedText(context))),
-                    Expanded(flex: 5, child: Text('覆盖域名', style: depotMutedText(context))),
-                    Expanded(flex: 5, child: Text('操作', textAlign: TextAlign.right, style: depotMutedText(context))),
                   ],
-                ),
-              ),
-              const SizedBox(height: 10),
-              if (certificates.isEmpty)
-                DepotRow(
-                  child: Text(
-                    connection.isConnected ? '点击刷新读取证书列表' : '请先连接服务器',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: depotMuted),
-                  ),
-                )
-              else
-                for (final certificate in certificates) ...[
-                  _CertificateRow(
-                    certificate: certificate,
-                    disabled: disabled,
-                    onAddDomain: () => _showAddDomainDialog(controller, certificate),
-                    onRemoveDomain: () => _showRemoveDomainDialog(controller, certificate),
-                    onDryRunRenew: () => _confirmAndRun(
-                      title: '测试续期',
-                      message:
-                          '将执行 certbot renew --cert-name ${certificate.certName} --dry-run。此操作不会续期正式证书，但会模拟验证续期流程。',
-                      action: () => controller.renewCertificate(certificate.certName, dryRun: true),
-                    ),
-                    onRenew: () => _confirmAndRun(
-                      title: '续期证书',
-                      message: '将执行 certbot renew --cert-name ${certificate.certName}。如果证书未到期，certbot 可能会提示无需续期。',
-                      action: () => controller.renewCertificate(certificate.certName),
-                    ),
-                  ),
-                  if (certificate != certificates.last) const SizedBox(height: 10),
                 ],
-            ],
-          ),
-        ),
-        const SizedBox(height: 22),
-        _OutputPanel(
-          output: _output,
-          scrollController: _outputScrollController,
-          onCopy: _output.trim().isEmpty ? null : () => _copyForAi(context),
-        ),
-      ],
+              ),
+            ),
+            const SizedBox(height: 22),
+            DepotPanel(
+              padding: const EdgeInsets.fromLTRB(28, 24, 28, 26),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  DepotSectionHeader(
+                    title: '证书列表',
+                    subtitle: certificates.isEmpty ? '暂无证书，点击刷新读取 certbot 证书。' : '共 ${certificates.length} 个证书。',
+                    trailing: FilledButton.icon(
+                      onPressed: disabled ? null : controller.refreshCertificates,
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text('刷新'),
+                      style: depotFilledButtonStyle(),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  DepotRow(
+                    height: 38,
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
+                    child: Row(
+                      children: [
+                        Expanded(flex: 4, child: Text('证书', style: depotMutedText(context))),
+                        Expanded(flex: 2, child: Text('状态', style: depotMutedText(context))),
+                        Expanded(flex: 5, child: Text('覆盖域名', style: depotMutedText(context))),
+                        Expanded(
+                            flex: 5, child: Text('操作', textAlign: TextAlign.right, style: depotMutedText(context))),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  if (certificates.isEmpty)
+                    DepotRow(
+                      child: Text(
+                        '点击刷新读取证书列表',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: depotMuted),
+                      ),
+                    )
+                  else
+                    for (final certificate in certificates) ...[
+                      _CertificateRow(
+                        certificate: certificate,
+                        disabled: disabled,
+                        onAddDomain: () => _showAddDomainDialog(controller, certificate),
+                        onRemoveDomain: () => _showRemoveDomainDialog(controller, certificate),
+                        onDryRunRenew: () => _confirmAndRun(
+                          title: '测试续期',
+                          message:
+                              '将执行 certbot renew --cert-name ${certificate.certName} --dry-run。此操作不会续期正式证书，但会模拟验证续期流程。',
+                          action: () => controller.renewCertificate(certificate.certName, dryRun: true),
+                        ),
+                        onRenew: () => _confirmAndRun(
+                          title: '续期证书',
+                          message: '将执行 certbot renew --cert-name ${certificate.certName}。如果证书未到期，certbot 可能会提示无需续期。',
+                          action: () => controller.renewCertificate(certificate.certName),
+                        ),
+                      ),
+                      if (certificate != certificates.last) const SizedBox(height: 10),
+                    ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 22),
+            _OutputPanel(
+              output: _output,
+              scrollController: _outputScrollController,
+              onCopy: _output.trim().isEmpty ? null : () => _copyForAi(context),
+            ),
+          ],
+        );
+      },
     );
   }
 

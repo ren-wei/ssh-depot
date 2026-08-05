@@ -1,34 +1,34 @@
 import 'package:ssh_depot/core/process/local_process_runner.dart';
 import 'package:ssh_depot/core/process/process_output_chunk.dart';
 
-import 'pty_ssh_session.dart';
+import 'shell_session.dart';
 import 'ssh_command.dart';
 import 'ssh_target.dart';
 
 class SshExecutor {
-  SshExecutor({required LocalProcessRunner processRunner}) : _processRunner = processRunner;
+  SshExecutor({
+    required ShellSession session,
+    LocalProcessRunner? processRunner,
+  })  : _session = session,
+        _processRunner = processRunner ?? LocalProcessRunner();
 
+  final ShellSession _session;
   final LocalProcessRunner _processRunner;
-  final PtySshSession _ptySession = PtySshSession();
 
   Future<int> openMaster({
     required SshTarget target,
     required void Function(ProcessOutputChunk chunk) onOutput,
     Duration? timeout,
   }) {
-    return _ptySession.open(
-      target: target,
-      timeout: timeout,
-      onOutput: onOutput,
-    );
+    return _session.open(target: target, timeout: timeout, onOutput: onOutput);
   }
 
   Future<int> closeMaster({
     required SshTarget target,
     required void Function(ProcessOutputChunk chunk) onOutput,
-  }) {
-    _ptySession.close();
-    return Future.value(0);
+  }) async {
+    _session.close();
+    return 0;
   }
 
   Future<int> run({
@@ -36,8 +36,8 @@ class SshExecutor {
     required SshCommand command,
     required void Function(ProcessOutputChunk chunk) onOutput,
   }) async {
-    if (!_ptySession.matches(target) || !_ptySession.isOpen) {
-      final openExitCode = await _ptySession.open(
+    if (!_session.matches(target) || !_session.isOpen) {
+      final openExitCode = await _session.open(
         target: target,
         timeout: const Duration(seconds: 12),
         onOutput: onOutput,
@@ -46,7 +46,7 @@ class SshExecutor {
         return openExitCode;
       }
     }
-    return _ptySession.run(
+    return _session.run(
       command: command.command,
       timeout: command.timeout,
       onOutput: onOutput,
@@ -54,7 +54,7 @@ class SshExecutor {
   }
 
   bool interruptActive() {
-    return _ptySession.interrupt() || _processRunner.killActive();
+    return _session.interrupt() || _processRunner.killActive();
   }
 
   Future<int> runDetached({

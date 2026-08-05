@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssh_depot/feature/classes/overview_snapshot.dart';
-import 'package:ssh_depot/feature/packages/overview/overview_parser.dart';
+import 'package:ssh_depot/feature/parts/overview/parsers/overview_parser.dart';
 
 void main() {
   test('parses overview snapshot output', () {
@@ -33,5 +33,34 @@ service=redis;status=inactive;enabled=unknown
     expect(snapshot.services[1].enabled, isFalse);
     expect(snapshot.services[2].status, ServiceStatus.inactive);
     expect(snapshot.services[2].enabled, isNull);
+  });
+
+  test('uses defaults and clamps percent boundaries', () {
+    const output = '''
+cpu=-1
+memory=88.6
+disk=180
+service=;status=active;enabled=enabled
+service=nginx.service;status=activating;enabled=static
+''';
+
+    final snapshot = const OverviewParser().parse(output);
+
+    expect(snapshot.distribution, '--');
+    expect(snapshot.kernel, '--');
+    expect(snapshot.uptime, '--');
+    expect(snapshot.cpuPercent, 0);
+    expect(snapshot.memoryPercent, 89);
+    expect(snapshot.diskPercent, 100);
+    expect(snapshot.services, hasLength(1));
+    expect(snapshot.services.single.status, ServiceStatus.activating);
+    expect(snapshot.services.single.enabled, isNull);
+  });
+
+  test('ignores malformed lines and invalid percent values', () {
+    final snapshot = const OverviewParser().parse('noise\n=bad\ncpu=abc\n');
+
+    expect(snapshot.cpuPercent, isNull);
+    expect(snapshot.services, isEmpty);
   });
 }

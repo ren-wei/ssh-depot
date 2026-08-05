@@ -5,5 +5,8 @@ void main() {
   test('quotes values for POSIX shell', () {
     expect(shellQuote('nginx'), "'nginx'");
     expect(shellQuote("a'b"), "'a'\"'\"'b'");
+    expect(shellQuote(null), "''");
+    expect(shellQuote(''), "''");
+    expect(shellQuote(22), "'22'");
   });
 }

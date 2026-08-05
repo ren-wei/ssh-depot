@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:yaml/yaml.dart';
 
 import 'package:ssh_depot/feature/classes/server_profile.dart';
-import 'config_paths.dart';
+import 'package:ssh_depot/feature/packages/local_config/config_paths.dart';
 
 class ServersStore {
   const ServersStore({required ConfigPaths paths}) : _paths = paths;
@@ -30,7 +30,7 @@ class ServersStore {
             user: item['user']?.toString() ?? 'root',
             remark: item['remark']?.toString(),
           ),
-    ].where((server) => server.host.isNotEmpty).toList();
+    ].where((server) => server.host.isNotEmpty).toList(growable: false);
   }
 
   Future<void> save(List<ServerProfile> servers) async {
@@ -45,8 +45,9 @@ class ServersStore {
       buffer.writeln('- name: ${_yamlString(server.name)}');
       buffer.writeln('  host: ${_yamlString(server.host)}');
       buffer.writeln('  user: ${_yamlString(server.user)}');
-      if ((server.remark ?? '').isNotEmpty) {
-        buffer.writeln('  remark: ${_yamlString(server.remark!)}');
+      final remark = server.remark;
+      if (remark != null && remark.isNotEmpty) {
+        buffer.writeln('  remark: ${_yamlString(remark)}');
       }
     }
     return buffer.toString();

@@ -32,6 +32,8 @@ class ServiceSnapshot {
   final String name;
   final ServiceStatus status;
   final bool? enabled;
+
+  String get displayName => serviceDisplayName(name);
 }
 
 String serviceDisplayName(String service) {
@@ -42,6 +44,8 @@ enum ServiceStatus {
   active,
   inactive,
   failed,
+  activating,
+  deactivating,
   unknown;
 
   String get label {
@@ -49,6 +53,8 @@ enum ServiceStatus {
       ServiceStatus.active => '运行中',
       ServiceStatus.inactive => '未运行',
       ServiceStatus.failed => '失败',
+      ServiceStatus.activating => '启动中',
+      ServiceStatus.deactivating => '停止中',
       ServiceStatus.unknown => '未知',
     };
   }

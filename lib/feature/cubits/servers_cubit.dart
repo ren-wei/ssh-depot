@@ -6,10 +6,11 @@ import 'package:ssh_depot/feature/packages/ssh/ssh_target.dart';
 import 'package:ssh_depot/feature/utils/home_directory.dart';
 
 class ServersCubit extends ChangeNotifier {
-  ServersCubit()
-      : _serversStore = ServersStore(
-          paths: ConfigPaths(homeDirectory: resolveHomeDirectory()),
-        );
+  ServersCubit({ServersStore? serversStore})
+      : _serversStore = serversStore ??
+            ServersStore(
+              paths: ConfigPaths(homeDirectory: resolveHomeDirectory()),
+            );
 
   final ServersStore _serversStore;
 

@@ -1,42 +1,55 @@
 import 'package:flutter/foundation.dart';
 import 'package:ssh_depot/core/process/process_output_chunk.dart';
-import 'package:ssh_depot/core/terminal/terminal_line_buffer.dart';
-import 'package:ssh_depot/core/terminal/terminal_raw_output.dart';
+import 'package:ssh_depot/core/terminal/terminal_control_sanitizer.dart';
 
 class TerminalCubit extends ChangeNotifier {
-  final TerminalLineBuffer _lineBuffer = TerminalLineBuffer();
-  final List<String> _terminalLines = [];
-  final List<String> _terminalRawLines = [];
+  final _sanitizer = TerminalControlSanitizer();
+  final _buffer = StringBuffer();
 
-  bool terminalExpanded = false;
-  String lastVisibleLine = '';
+  bool expanded = false;
+  String output = '';
+  String rawOutput = '';
 
-  List<String> get terminalLines => List.unmodifiable(_terminalLines);
-  String get terminalRawText => _terminalRawLines.join();
+  bool get terminalExpanded => expanded;
+  String get terminalRawText => rawOutput;
 
-  void appendOutput(ProcessOutputChunk chunk) {
-    append(chunk.text, rawText: chunk.rawText);
+  String get lastVisibleLine {
+    final lines = output.trimRight().split('\n');
+    return lines.isEmpty ? '' : lines.last.trim();
   }
 
   void append(String text, {String? rawText}) {
-    _terminalLines.add(text);
-    _terminalRawLines.add(TerminalRawOutput.normalizeForXterm(rawText ?? text));
-    _lineBuffer.append(text);
-    lastVisibleLine = _lineBuffer.lastVisibleLine;
+    _buffer.write(text);
+    output = _buffer.toString();
+    rawOutput += rawText ?? text;
     notifyListeners();
   }
 
+  void appendOutput(ProcessOutputChunk chunk) {
+    append(_sanitizer.sanitize(chunk.text), rawText: chunk.rawText);
+  }
+
   void clear() {
-    _terminalLines.clear();
-    _terminalRawLines.clear();
-    _lineBuffer.clear();
-    lastVisibleLine = '';
-    terminalExpanded = false;
+    _buffer.clear();
+    output = '';
+    rawOutput = '';
+    notifyListeners();
+  }
+
+  void toggleExpanded() {
+    expanded = !expanded;
     notifyListeners();
   }
 
   void toggleTerminal() {
-    terminalExpanded = !terminalExpanded;
+    toggleExpanded();
+  }
+
+  void setExpanded(bool value) {
+    if (expanded == value) {
+      return;
+    }
+    expanded = value;
     notifyListeners();
   }
 }

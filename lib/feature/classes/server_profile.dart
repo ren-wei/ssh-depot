@@ -12,6 +12,7 @@ class ServerProfile {
   final String? remark;
 
   String get target => '$user@$host';
+  String get displayName => name.trim().isEmpty ? host : name;
 
   ServerProfile copyWith({
     String? name,

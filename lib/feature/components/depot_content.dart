@@ -1,7 +1,32 @@
 import 'package:flutter/material.dart';
 
-import 'app_shell.dart';
+import 'package:ssh_depot/feature/shell/app_shell.dart';
 import 'depot_scrollbar.dart';
+
+class DepotContent extends StatelessWidget {
+  const DepotContent({
+    required this.title,
+    required this.child,
+    this.subtitle = '',
+    this.actions = const [],
+    super.key,
+  });
+
+  final String title;
+  final String subtitle;
+  final Widget child;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    return DepotContentPage(
+      title: title,
+      subtitle: subtitle,
+      actions: actions,
+      children: [child],
+    );
+  }
+}
 
 class DepotContentPage extends StatefulWidget {
   const DepotContentPage({

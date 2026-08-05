@@ -1,24 +1,33 @@
 import 'package:flutter/foundation.dart';
 import 'package:ssh_depot/feature/classes/nginx_site.dart';
 import 'package:ssh_depot/feature/classes/nginx_template_definition.dart';
-import 'package:ssh_depot/feature/cubits/command_runner_cubit.dart';
+import 'package:ssh_depot/feature/classes/remote_command_result.dart';
+import 'package:ssh_depot/feature/packages/command_runner/remote_command_runner.dart';
+import 'package:ssh_depot/feature/packages/commands/command.dart';
+import 'package:ssh_depot/feature/packages/commands/nginx_command.dart';
+import 'package:ssh_depot/feature/packages/commands/systemctl_command.dart';
 import 'package:ssh_depot/feature/packages/local_config/config_paths.dart';
-import 'package:ssh_depot/feature/packages/local_config/nginx_templates_store.dart';
-import 'package:ssh_depot/feature/packages/nginx_template/built_in_templates.dart';
-import 'package:ssh_depot/feature/packages/nginx_template/template_manifest.dart';
-import 'package:ssh_depot/feature/packages/nginx_template/template_renderer.dart';
+import 'package:ssh_depot/feature/parts/nginx/commands/nginx_site_commands.dart';
+import 'package:ssh_depot/feature/parts/nginx/parsers/nginx_sites_parser.dart';
+import 'package:ssh_depot/feature/parts/nginx/stores/nginx_templates_store.dart';
+import 'package:ssh_depot/feature/parts/nginx/templates/built_in_templates.dart';
+import 'package:ssh_depot/feature/parts/nginx/templates/nginx_site_templates.dart';
+import 'package:ssh_depot/feature/parts/nginx/templates/template_manifest.dart';
+import 'package:ssh_depot/feature/parts/nginx/templates/template_renderer.dart';
+import 'package:ssh_depot/feature/parts/nginx/validators/nginx_site_validator.dart';
 import 'package:ssh_depot/feature/utils/home_directory.dart';
 
-import '../utils/nginx_utils.dart';
-
 class NginxCubit extends ChangeNotifier {
-  NginxCubit({required CommandRunnerCubit commandRunnerCubit})
-      : _commandRunnerCubit = commandRunnerCubit,
-        _nginxTemplatesStore = NginxTemplatesStore(
-          paths: ConfigPaths(homeDirectory: resolveHomeDirectory()),
-        );
+  NginxCubit({
+    required RemoteCommandRunner commandRunner,
+    NginxTemplatesStore? nginxTemplatesStore,
+  })  : _commandRunner = commandRunner,
+        _nginxTemplatesStore = nginxTemplatesStore ??
+            NginxTemplatesStore(
+              paths: ConfigPaths(homeDirectory: resolveHomeDirectory()),
+            );
 
-  final CommandRunnerCubit _commandRunnerCubit;
+  final RemoteCommandRunner _commandRunner;
   final NginxTemplatesStore _nginxTemplatesStore;
 
   List<NginxSite> nginxSites = const [];
@@ -26,6 +35,7 @@ class NginxCubit extends ChangeNotifier {
   List<NginxTemplateDefinition> customNginxTemplates = const [];
 
   List<TemplateManifest> get nginxTemplates => builtInNginxTemplates;
+
   List<NginxTemplateDefinition> get websiteTemplates => [
         ...builtInWebsiteTemplates,
         ...customNginxTemplates,
@@ -37,8 +47,7 @@ class NginxCubit extends ChangeNotifier {
   }
 
   Future<void> refreshNginxSites() async {
-    final result = await _commandRunnerCubit.runCaptureRemote(
-      summary: '刷新网站列表',
+    final result = await _commandRunner.runCaptureCommand(
       command: refreshNginxSitesCommand(),
       timeout: const Duration(seconds: 20),
     );
@@ -57,34 +66,38 @@ class NginxCubit extends ChangeNotifier {
 
   Future<void> enableNginxSite(String site) async {
     if (!isSafeSiteName(site)) {
-      _commandRunnerCubit.setStatus('无效站点名');
+      _commandRunner.setStatus('无效站点名');
       return;
     }
-    await _commandRunnerCubit.runRemote(
-      summary: '启用网站 $site',
-      command: enableNginxSiteCommand(site),
+    await _commandRunner.runCommand(
+      command: CommandWithSummary(
+        command: enableNginxSiteCommand(site),
+        summary: '启用网站 $site',
+      ),
     );
     await refreshNginxSites();
   }
 
   Future<void> disableNginxSite(String site) async {
     if (!isSafeSiteName(site)) {
-      _commandRunnerCubit.setStatus('无效站点名');
+      _commandRunner.setStatus('无效站点名');
       return;
     }
-    await _commandRunnerCubit.runRemote(
-      summary: '禁用网站 $site',
-      command: disableNginxSiteCommand(site),
+    await _commandRunner.runCommand(
+      command: CommandWithSummary(
+        command: disableNginxSiteCommand(site),
+        summary: '禁用网站 $site',
+      ),
     );
     await refreshNginxSites();
   }
 
   Future<void> testNginx() {
-    return _commandRunnerCubit.runRemote(summary: '网站语法检查', command: 'nginx -t');
+    return _commandRunner.runCommand(command: NginxCommand.test());
   }
 
   Future<void> reloadNginx() {
-    return _commandRunnerCubit.runRemote(summary: 'Reload Nginx', command: 'systemctl reload nginx');
+    return _commandRunner.runCommand(command: SystemctlCommand.reload('nginx'));
   }
 
   Future<void> writeNginxSite({
@@ -93,29 +106,33 @@ class NginxCubit extends ChangeNotifier {
   }) {
     final cleanSite = siteName.trim();
     if (!isSafeSiteName(cleanSite)) {
-      _commandRunnerCubit.setStatus('站点名只能包含字母、数字、点、下划线和短横线');
+      _commandRunner.setStatus('站点名只能包含字母、数字、点、下划线和短横线');
       return Future.value();
     }
     if (config.trim().isEmpty) {
-      _commandRunnerCubit.setStatus('配置内容不能为空');
+      _commandRunner.setStatus('配置内容不能为空');
       return Future.value();
     }
 
-    return _commandRunnerCubit.runRemote(
-      summary: '写入网站配置 $cleanSite',
-      command: writeNginxSiteCommand(siteName: cleanSite, config: config),
+    return _commandRunner.runCommand(
+      command: CommandWithSummary(
+        command: writeNginxSiteCommand(siteName: cleanSite, config: config),
+        summary: '写入网站配置 $cleanSite',
+      ),
       timeout: const Duration(minutes: 2),
     );
   }
 
   Future<String?> readNginxSiteConfig(String site) async {
     if (!isSafeSiteName(site)) {
-      _commandRunnerCubit.setStatus('无效站点名');
+      _commandRunner.setStatus('无效站点名');
       return null;
     }
-    final result = await _commandRunnerCubit.runCaptureRemote(
-      summary: '读取网站配置 $site',
-      command: readNginxSiteConfigCommand(site),
+    final result = await _commandRunner.runCaptureCommand(
+      command: CommandWithSummary(
+        command: readNginxSiteConfigCommand(site),
+        summary: '读取网站配置 $site',
+      ),
       timeout: const Duration(seconds: 12),
     );
     if (result == null || !result.succeeded) {
@@ -127,20 +144,22 @@ class NginxCubit extends ChangeNotifier {
   Future<RemoteCommandResult?> testNginxSiteConfig({
     required String siteName,
     required String config,
-  }) async {
+  }) {
     final cleanSite = siteName.trim();
     if (!isSafeSiteName(cleanSite)) {
-      _commandRunnerCubit.setStatus('无效站点名');
-      return null;
+      _commandRunner.setStatus('无效站点名');
+      return Future.value();
     }
     if (config.trim().isEmpty) {
-      _commandRunnerCubit.setStatus('配置内容不能为空');
-      return null;
+      _commandRunner.setStatus('配置内容不能为空');
+      return Future.value();
     }
 
-    return _commandRunnerCubit.runCaptureRemote(
-      summary: '检查网站配置 $cleanSite',
-      command: testNginxSiteConfigCommand(siteName: cleanSite, config: config),
+    return _commandRunner.runCaptureCommand(
+      command: CommandWithSummary(
+        command: testNginxSiteConfigCommand(siteName: cleanSite, config: config),
+        summary: '检查网站配置 $cleanSite',
+      ),
       timeout: const Duration(minutes: 2),
     );
   }
@@ -151,17 +170,19 @@ class NginxCubit extends ChangeNotifier {
   }) async {
     final cleanSite = siteName.trim();
     if (!isSafeSiteName(cleanSite)) {
-      _commandRunnerCubit.setStatus('无效站点名');
+      _commandRunner.setStatus('无效站点名');
       return null;
     }
     if (config.trim().isEmpty) {
-      _commandRunnerCubit.setStatus('配置内容不能为空');
+      _commandRunner.setStatus('配置内容不能为空');
       return null;
     }
 
-    final result = await _commandRunnerCubit.runCaptureRemote(
-      summary: '保存网站配置 $cleanSite',
-      command: saveNginxSiteConfigCommand(siteName: cleanSite, config: config),
+    final result = await _commandRunner.runCaptureCommand(
+      command: CommandWithSummary(
+        command: saveNginxSiteConfigCommand(siteName: cleanSite, config: config),
+        summary: '保存网站配置 $cleanSite',
+      ),
       timeout: const Duration(minutes: 2),
     );
     await refreshNginxSites();
@@ -170,12 +191,14 @@ class NginxCubit extends ChangeNotifier {
 
   Future<void> deleteNginxSite(String site) async {
     if (!isSafeSiteName(site)) {
-      _commandRunnerCubit.setStatus('无效站点名');
+      _commandRunner.setStatus('无效站点名');
       return;
     }
-    await _commandRunnerCubit.runRemote(
-      summary: '删除网站 $site',
-      command: deleteNginxSiteCommand(site),
+    await _commandRunner.runCommand(
+      command: CommandWithSummary(
+        command: deleteNginxSiteCommand(site),
+        summary: '删除网站 $site',
+      ),
       timeout: const Duration(minutes: 2),
     );
     await refreshNginxSites();
@@ -199,11 +222,11 @@ class NginxCubit extends ChangeNotifier {
   }) async {
     final cleanName = name.trim();
     if (cleanName.isEmpty) {
-      _commandRunnerCubit.setStatus('请输入模板名称');
+      _commandRunner.setStatus('请输入模板名称');
       return;
     }
     if (content.trim().isEmpty) {
-      _commandRunnerCubit.setStatus('模板内容不能为空');
+      _commandRunner.setStatus('模板内容不能为空');
       return;
     }
     final template = NginxTemplateDefinition(
@@ -216,10 +239,10 @@ class NginxCubit extends ChangeNotifier {
     try {
       await _nginxTemplatesStore.save(template);
       customNginxTemplates = await _nginxTemplatesStore.load();
-      _commandRunnerCubit.setStatus('✓ 已保存模板 $cleanName');
+      _commandRunner.setStatus('✓ 已保存模板 $cleanName');
       notifyListeners();
     } catch (error) {
-      _commandRunnerCubit.setStatus('✗ 保存模板失败: $error');
+      _commandRunner.setStatus('✗ 保存模板失败: $error');
     }
   }
 
@@ -227,7 +250,7 @@ class NginxCubit extends ChangeNotifier {
     final template = switch (templateId) {
       'static_site' => staticSiteTemplate(variables['enable_logs'] == true),
       'reverse_proxy' => reverseProxyTemplate,
-      _ => '',
+      _ => _customTemplateContent(templateId),
     };
     return const TemplateRenderer().render(template: template, variables: variables);
   }
@@ -244,5 +267,14 @@ class NginxCubit extends ChangeNotifier {
       hash = (hash * 31 + codeUnit) & 0x7fffffff;
     }
     return hash.toRadixString(16);
+  }
+
+  String _customTemplateContent(String templateId) {
+    for (final template in websiteTemplates) {
+      if (template.id == templateId) {
+        return template.content;
+      }
+    }
+    return '';
   }
 }

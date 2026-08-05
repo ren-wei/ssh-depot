@@ -1,35 +1,44 @@
 import 'package:flutter/foundation.dart';
 import 'package:ssh_depot/core/process/local_process_runner.dart';
 import 'package:ssh_depot/core/process/process_output_chunk.dart';
-import 'package:ssh_depot/feature/classes/nginx_site.dart';
+import 'package:ssh_depot/feature/classes/remote_command_result.dart';
 import 'package:ssh_depot/feature/cubits/operation_history_cubit.dart';
 import 'package:ssh_depot/feature/cubits/terminal_cubit.dart';
 import 'package:ssh_depot/feature/packages/command_runner/operation_queue.dart';
+import 'package:ssh_depot/feature/packages/command_runner/remote_command_runner.dart';
+import 'package:ssh_depot/feature/packages/commands/command.dart';
+import 'package:ssh_depot/feature/packages/ssh/pty_ssh_session.dart';
 import 'package:ssh_depot/feature/packages/ssh/ssh_command.dart';
 import 'package:ssh_depot/feature/packages/ssh/ssh_executor.dart';
 import 'package:ssh_depot/feature/packages/ssh/ssh_target.dart';
 
-class CommandRunnerCubit extends ChangeNotifier {
+class CommandRunnerCubit extends ChangeNotifier implements RemoteCommandRunner {
   CommandRunnerCubit({
     required TerminalCubit terminalCubit,
     required OperationHistoryCubit historyCubit,
     required SshTarget? Function() currentTarget,
+    SshExecutor? sshExecutor,
+    OperationQueue? queue,
   })  : _terminalCubit = terminalCubit,
         _historyCubit = historyCubit,
         _currentTarget = currentTarget,
-        _processRunner = LocalProcessRunner(),
-        _queue = OperationQueue() {
-    _sshExecutor = SshExecutor(processRunner: _processRunner);
-  }
+        _queue = queue ?? OperationQueue(),
+        _sshExecutor = sshExecutor ??
+            SshExecutor(
+              session: PtySshSession(),
+              processRunner: LocalProcessRunner(),
+            );
 
   final TerminalCubit _terminalCubit;
   final OperationHistoryCubit _historyCubit;
   final SshTarget? Function() _currentTarget;
-  final LocalProcessRunner _processRunner;
   final OperationQueue _queue;
-  late final SshExecutor _sshExecutor;
+  final SshExecutor _sshExecutor;
 
+  @override
   bool isRunning = false;
+
+  @override
   String statusLine = '空闲';
 
   Future<int> openMasterAndVerify(SshTarget target) {
@@ -45,7 +54,6 @@ class CommandRunnerCubit extends ChangeNotifier {
           onOutput: _appendOutput,
         );
         if (exitCode == 0) {
-          _terminalCubit.append('\n\$ echo __ssh-depot_ok__\n');
           exitCode = await _sshExecutor.run(
             target: target,
             command: const SshCommand(
@@ -70,19 +78,19 @@ class CommandRunnerCubit extends ChangeNotifier {
     });
   }
 
-  Future<int> testTarget(SshTarget target, {bool closeAfterTest = true}) async {
-    final exitCode = await runOnTarget(
-      target: target,
-      summary: '测试连接',
-      command: 'echo __ssh-depot_ok__',
-      timeout: const Duration(seconds: 12),
+  @override
+  Future<void> runCommand({
+    required Command command,
+    Duration? timeout,
+  }) {
+    return runRemote(
+      summary: command.summary,
+      command: command.text,
+      timeout: timeout,
     );
-    if (closeAfterTest) {
-      await _sshExecutor.closeMaster(target: target, onOutput: (_) {});
-    }
-    return exitCode;
   }
 
+  @override
   Future<void> runRemote({
     required String summary,
     required String command,
@@ -93,9 +101,27 @@ class CommandRunnerCubit extends ChangeNotifier {
       _setStatus('请先连接服务器');
       return;
     }
-    await runOnTarget(target: target, summary: summary, command: command, timeout: timeout);
+    await runOnTarget(
+      target: target,
+      summary: summary,
+      command: command,
+      timeout: timeout,
+    );
   }
 
+  @override
+  Future<RemoteCommandResult?> runCaptureCommand({
+    required Command command,
+    Duration? timeout,
+  }) {
+    return runCaptureRemote(
+      summary: command.summary,
+      command: command.text,
+      timeout: timeout,
+    );
+  }
+
+  @override
   Future<RemoteCommandResult?> runCaptureRemote({
     required String summary,
     required String command,
@@ -108,7 +134,7 @@ class CommandRunnerCubit extends ChangeNotifier {
     }
 
     final output = StringBuffer();
-    final exitCode = await runOnTarget(
+    final exitCode = await _runOnTarget(
       target: target,
       summary: summary,
       command: command,
@@ -118,7 +144,36 @@ class CommandRunnerCubit extends ChangeNotifier {
     return RemoteCommandResult(exitCode: exitCode, output: output.toString());
   }
 
+  @override
+  Future<int> runCommandOnTarget({
+    required SshTarget target,
+    required Command command,
+    Duration? timeout,
+  }) {
+    return runOnTarget(
+      target: target,
+      summary: command.summary,
+      command: command.text,
+      timeout: timeout,
+    );
+  }
+
+  @override
   Future<int> runOnTarget({
+    required SshTarget target,
+    required String summary,
+    required String command,
+    Duration? timeout,
+  }) {
+    return _runOnTarget(
+      target: target,
+      summary: summary,
+      command: command,
+      timeout: timeout,
+    );
+  }
+
+  Future<int> _runOnTarget({
     required SshTarget target,
     required String summary,
     required String command,
@@ -127,7 +182,7 @@ class CommandRunnerCubit extends ChangeNotifier {
   }) {
     return _queue.run(() async {
       isRunning = true;
-      _terminalCubit.append('\n\$ $command\n');
+      _terminalCubit.append('\n$command\n');
       _setStatus(summary);
 
       int exitCode;
@@ -155,7 +210,7 @@ class CommandRunnerCubit extends ChangeNotifier {
   void cancelRunning() {
     if (_sshExecutor.interruptActive()) {
       isRunning = false;
-      _setStatus('⏹ 操作已取消');
+      _setStatus('操作已取消');
     }
   }
 
@@ -168,6 +223,7 @@ class CommandRunnerCubit extends ChangeNotifier {
         .catchError((Object _) => 255);
   }
 
+  @override
   void setStatus(String value) {
     _setStatus(value);
   }

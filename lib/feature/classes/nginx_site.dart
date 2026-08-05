@@ -16,6 +16,7 @@ class NginxSite {
   final NginxCertificateInfo? certificate;
 
   String get statusLabel => enabled ? '已启用' : '未启用';
+
   String get typeLabel {
     return switch (configType) {
       NginxSiteType.staticSite => '静态站点',
@@ -23,6 +24,10 @@ class NginxSite {
       NginxSiteType.custom => '自定义',
       NginxSiteType.unknown => '未知',
     };
+  }
+
+  CertificateStatus get certificateStatus {
+    return certificate?.status ?? CertificateStatus.missing;
   }
 }
 
@@ -46,7 +51,6 @@ class NginxCertificateInfo {
   final String? issuer;
 
   String get domain => domains.isEmpty ? certName : domains.first;
-
   List<String> get names => domains;
 
   String get statusLabel {
@@ -73,16 +77,4 @@ enum NginxSiteType {
   reverseProxy,
   custom,
   unknown,
-}
-
-class RemoteCommandResult {
-  const RemoteCommandResult({
-    required this.exitCode,
-    required this.output,
-  });
-
-  final int exitCode;
-  final String output;
-
-  bool get succeeded => exitCode == 0;
 }

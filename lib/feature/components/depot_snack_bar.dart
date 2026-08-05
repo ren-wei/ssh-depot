@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'app_shell.dart';
+import 'package:ssh_depot/feature/shell/app_shell.dart';
 
 void showDepotSnackBar(BuildContext context, String message) {
   ScaffoldMessenger.of(context).showSnackBar(

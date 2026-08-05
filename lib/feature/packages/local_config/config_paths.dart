@@ -11,4 +11,11 @@ class ConfigPaths {
   String get serversFile => p.join(configDirectory, 'servers.yaml');
   String get templatesDirectory => p.join(configDirectory, 'templates');
   String get preferencesFile => p.join(configDirectory, 'preferences.yaml');
+  String servicePreferencesFile(String serverKey) {
+    return p.join(configDirectory, 'servers', serverKey, 'services.yaml');
+  }
+
+  String operationHistoryFile(String serverKey) {
+    return p.join(configDirectory, 'servers', serverKey, 'operation_history.yaml');
+  }
 }

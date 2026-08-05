@@ -1,14 +1,13 @@
 import 'package:flutter/foundation.dart';
 import 'package:ssh_depot/feature/classes/overview_snapshot.dart';
-import 'package:ssh_depot/feature/cubits/command_runner_cubit.dart';
-import 'package:ssh_depot/feature/packages/overview/overview_parser.dart';
-
-import '../utils/overview_utils.dart';
+import 'package:ssh_depot/feature/packages/command_runner/remote_command_runner.dart';
+import 'package:ssh_depot/feature/parts/overview/commands/overview_commands.dart';
+import 'package:ssh_depot/feature/parts/overview/parsers/overview_parser.dart';
 
 class OverviewCubit extends ChangeNotifier {
-  OverviewCubit({required CommandRunnerCubit commandRunnerCubit}) : _commandRunnerCubit = commandRunnerCubit;
+  OverviewCubit({required RemoteCommandRunner commandRunner}) : _commandRunner = commandRunner;
 
-  final CommandRunnerCubit _commandRunnerCubit;
+  final RemoteCommandRunner _commandRunner;
 
   OverviewSnapshot? overviewSnapshot;
   bool overviewLoading = false;
@@ -17,8 +16,7 @@ class OverviewCubit extends ChangeNotifier {
     overviewLoading = true;
     notifyListeners();
 
-    final result = await _commandRunnerCubit.runCaptureRemote(
-      summary: '刷新概览',
+    final result = await _commandRunner.runCaptureCommand(
       command: overviewCommandFor(managedServices),
       timeout: const Duration(seconds: 20),
     );

@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:ssh_depot/feature/classes/nginx_site.dart';
 import 'package:ssh_depot/feature/classes/nginx_template_definition.dart';
-import 'package:ssh_depot/feature/components/app_scope.dart';
-import 'package:ssh_depot/feature/components/app_shell.dart';
 import 'package:ssh_depot/feature/components/depot_content.dart';
 import 'package:ssh_depot/feature/components/depot_scrollbar.dart';
+import 'package:ssh_depot/feature/cubits/command_runner_cubit.dart';
 import 'package:ssh_depot/feature/parts/nginx/cubits/nginx_cubit.dart';
+import 'package:ssh_depot/feature/shell/app_shell.dart';
 
 class NginxView extends StatefulWidget {
   const NginxView({super.key});
@@ -20,9 +21,8 @@ class _NginxViewState extends State<NginxView> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final connection = AppScope.connection(context);
-    final nginx = AppScope.nginx(context);
-    if (!_requestedInitialRefresh && connection.isConnected && nginx.nginxSites.isEmpty) {
+    final nginx = context.read<NginxCubit>();
+    if (!_requestedInitialRefresh && nginx.nginxSites.isEmpty) {
       _requestedInitialRefresh = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -34,92 +34,97 @@ class _NginxViewState extends State<NginxView> {
 
   @override
   Widget build(BuildContext context) {
-    final connection = AppScope.connection(context);
-    final runner = AppScope.commandRunner(context);
-    final controller = AppScope.nginx(context);
-    final disabled = !connection.isConnected || runner.isRunning;
-    final sites = controller.nginxSites;
+    final runner = context.read<CommandRunnerCubit>();
+    final controller = context.read<NginxCubit>();
+    return ListenableBuilder(
+      listenable: Listenable.merge([runner, controller]),
+      builder: (context, _) {
+        final disabled = runner.isRunning;
+        final sites = controller.nginxSites;
 
-    return DepotContentPage(
-      title: '网站管理',
-      subtitle: '管理 Nginx 网站配置、启用状态和语法检查。',
-      children: [
-        DepotPanel(
-          padding: const EdgeInsets.fromLTRB(28, 24, 28, 26),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              DepotSectionHeader(
-                title: '网站列表',
-                subtitle: sites.isEmpty ? '暂无网站，点击刷新读取远端 sites-available。' : '共 ${sites.length} 个网站。',
-                trailing: Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    FilledButton.icon(
-                      onPressed: disabled ? null : () => _openCreateSiteDialog(controller),
-                      icon: const Icon(Icons.add, size: 18),
-                      label: const Text('新增'),
-                      style: depotFilledButtonStyle(),
+        return DepotContentPage(
+          title: '网站管理',
+          subtitle: '管理 Nginx 网站配置、启用状态和语法检查。',
+          children: [
+            DepotPanel(
+              padding: const EdgeInsets.fromLTRB(28, 24, 28, 26),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  DepotSectionHeader(
+                    title: '网站列表',
+                    subtitle: sites.isEmpty ? '暂无网站，点击刷新读取远端 sites-available。' : '共 ${sites.length} 个网站。',
+                    trailing: Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        FilledButton.icon(
+                          onPressed: disabled ? null : () => _openCreateSiteDialog(controller),
+                          icon: const Icon(Icons.add, size: 18),
+                          label: const Text('新增'),
+                          style: depotFilledButtonStyle(),
+                        ),
+                        FilledButton.icon(
+                          onPressed: disabled ? null : controller.refreshNginxSites,
+                          icon: const Icon(Icons.refresh, size: 18),
+                          label: const Text('刷新'),
+                          style: depotFilledButtonStyle(),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: disabled ? null : controller.testNginx,
+                          icon: const Icon(Icons.check, size: 18),
+                          label: const Text('语法检查'),
+                          style: depotOutlinedButtonStyle(),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: disabled ? null : controller.reloadNginx,
+                          icon: const Icon(Icons.restart_alt, size: 18),
+                          label: const Text('Reload'),
+                          style: depotOutlinedButtonStyle(),
+                        ),
+                      ],
                     ),
-                    FilledButton.icon(
-                      onPressed: disabled ? null : controller.refreshNginxSites,
-                      icon: const Icon(Icons.refresh, size: 18),
-                      label: const Text('刷新'),
-                      style: depotFilledButtonStyle(),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: disabled ? null : controller.testNginx,
-                      icon: const Icon(Icons.check, size: 18),
-                      label: const Text('语法检查'),
-                      style: depotOutlinedButtonStyle(),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: disabled ? null : controller.reloadNginx,
-                      icon: const Icon(Icons.restart_alt, size: 18),
-                      label: const Text('Reload'),
-                      style: depotOutlinedButtonStyle(),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 18),
-              DepotRow(
-                height: 38,
-                padding: const EdgeInsets.symmetric(horizontal: 18),
-                child: Row(
-                  children: [
-                    Expanded(flex: 5, child: Text('网站', style: depotMutedText(context))),
-                    Expanded(flex: 2, child: Text('状态', style: depotMutedText(context))),
-                    Expanded(flex: 2, child: Text('证书', style: depotMutedText(context))),
-                    Expanded(flex: 5, child: Text('操作', textAlign: TextAlign.right, style: depotMutedText(context))),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 10),
-              if (sites.isEmpty)
-                DepotRow(
-                  child: Text(
-                    connection.isConnected ? '点击刷新读取网站列表' : '请先连接服务器',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: depotMuted),
                   ),
-                )
-              else
-                for (final site in sites) ...[
-                  _SiteRow(
-                    site: site,
-                    disabled: disabled,
-                    onConfig: () => _openConfigDialog(controller, site),
-                    onEnable: () => controller.enableNginxSite(site.name),
-                    onDisable: () => controller.disableNginxSite(site.name),
-                    onDelete: () => _confirmDeleteSite(controller, site),
+                  const SizedBox(height: 18),
+                  DepotRow(
+                    height: 38,
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
+                    child: Row(
+                      children: [
+                        Expanded(flex: 5, child: Text('网站', style: depotMutedText(context))),
+                        Expanded(flex: 2, child: Text('状态', style: depotMutedText(context))),
+                        Expanded(flex: 2, child: Text('证书', style: depotMutedText(context))),
+                        Expanded(
+                            flex: 5, child: Text('操作', textAlign: TextAlign.right, style: depotMutedText(context))),
+                      ],
+                    ),
                   ),
-                  if (site != sites.last) const SizedBox(height: 10),
+                  const SizedBox(height: 10),
+                  if (sites.isEmpty)
+                    DepotRow(
+                      child: Text(
+                        '点击刷新读取网站列表',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: depotMuted),
+                      ),
+                    )
+                  else
+                    for (final site in sites) ...[
+                      _SiteRow(
+                        site: site,
+                        disabled: disabled,
+                        onConfig: () => _openConfigDialog(controller, site),
+                        onEnable: () => controller.enableNginxSite(site.name),
+                        onDisable: () => controller.disableNginxSite(site.name),
+                        onDelete: () => _confirmDeleteSite(controller, site),
+                      ),
+                      if (site != sites.last) const SizedBox(height: 10),
+                    ],
                 ],
-            ],
-          ),
-        ),
-      ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 

@@ -1,24 +1,27 @@
 import 'package:flutter/foundation.dart';
 import 'package:ssh_depot/feature/classes/overview_snapshot.dart';
-import 'package:ssh_depot/feature/cubits/command_runner_cubit.dart';
+import 'package:ssh_depot/feature/packages/command_runner/remote_command_runner.dart';
+import 'package:ssh_depot/feature/packages/commands/command.dart';
 import 'package:ssh_depot/feature/packages/local_config/config_paths.dart';
 import 'package:ssh_depot/feature/packages/local_config/service_preferences_store.dart';
 import 'package:ssh_depot/feature/packages/ssh/ssh_target.dart';
+import 'package:ssh_depot/feature/parts/services/commands/service_commands.dart';
+import 'package:ssh_depot/feature/parts/services/parsers/service_parsers.dart';
 import 'package:ssh_depot/feature/utils/home_directory.dart';
-
-import '../utils/services_utils.dart';
 
 class ServicesCubit extends ChangeNotifier {
   ServicesCubit({
-    required CommandRunnerCubit commandRunnerCubit,
+    required RemoteCommandRunner commandRunner,
     required SshTarget? Function() currentTarget,
-  })  : _commandRunnerCubit = commandRunnerCubit,
+    ServicePreferencesStore? servicePreferencesStore,
+  })  : _commandRunner = commandRunner,
         _currentTarget = currentTarget,
-        _servicePreferencesStore = ServicePreferencesStore(
-          paths: ConfigPaths(homeDirectory: resolveHomeDirectory()),
-        );
+        _servicePreferencesStore = servicePreferencesStore ??
+            ServicePreferencesStore(
+              paths: ConfigPaths(homeDirectory: resolveHomeDirectory()),
+            );
 
-  final CommandRunnerCubit _commandRunnerCubit;
+  final RemoteCommandRunner _commandRunner;
   final SshTarget? Function() _currentTarget;
   final ServicePreferencesStore _servicePreferencesStore;
 
@@ -44,17 +47,17 @@ class ServicesCubit extends ChangeNotifier {
   Future<void> addManagedService(String service) async {
     final cleanService = serviceUnitName(service);
     if (!isSafeServiceName(cleanService)) {
-      _commandRunnerCubit.setStatus('无效服务名');
+      _commandRunner.setStatus('无效服务名');
       return;
     }
     if (managedServices.contains(cleanService)) {
-      _commandRunnerCubit.setStatus('服务已存在');
+      _commandRunner.setStatus('服务已存在');
       return;
     }
 
     managedServices = [...managedServices, cleanService];
     await _saveManagedServices();
-    _commandRunnerCubit.setStatus('✓ 已添加服务 ${serviceDisplayName(cleanService)}');
+    _commandRunner.setStatus('✓ 已添加服务 ${serviceDisplayName(cleanService)}');
     await refreshServiceStatus(cleanService);
   }
 
@@ -71,34 +74,33 @@ class ServicesCubit extends ChangeNotifier {
         if (managedServices.contains(entry.key)) entry.key: entry.value,
     };
     await _saveManagedServices();
-    _commandRunnerCubit.setStatus('✓ 已移除服务 ${serviceDisplayName(service)}');
+    _commandRunner.setStatus('✓ 已移除服务 ${serviceDisplayName(service)}');
     notifyListeners();
   }
 
   Future<List<String>> searchRemoteServices() async {
-    final output = StringBuffer();
-    final exitCode = await _commandRunnerCubit.runCaptureRemote(
-      summary: '搜索服务',
+    final result = await _commandRunner.runCaptureCommand(
       command: searchServicesCommand(),
       timeout: const Duration(seconds: 20),
     );
-    if (exitCode == null || !exitCode.succeeded) {
+    if (result == null || !result.succeeded) {
       return const [];
     }
-    output.write(exitCode.output);
-    return parseSystemdServices(output.toString());
+    return parseSystemdServices(result.output);
   }
 
   Future<void> refreshServiceStatus(String service) async {
     final serviceUnit = serviceUnitName(service);
     if (!isSafeServiceName(serviceUnit)) {
-      _commandRunnerCubit.setStatus('无效服务名');
+      _commandRunner.setStatus('无效服务名');
       return;
     }
 
-    final result = await _commandRunnerCubit.runCaptureRemote(
-      summary: '获取 ${serviceDisplayName(serviceUnit)} 状态',
-      command: serviceStatusCommand(serviceUnit),
+    final result = await _commandRunner.runCaptureCommand(
+      command: CommandWithSummary(
+        command: serviceStatusCommand(serviceUnit),
+        summary: '获取 ${serviceDisplayName(serviceUnit)} 状态',
+      ),
       timeout: const Duration(seconds: 12),
     );
 
@@ -116,7 +118,7 @@ class ServicesCubit extends ChangeNotifier {
   Future<void> serviceAction(String service, String action) async {
     final serviceUnit = serviceUnitName(service);
     if (!isSafeServiceName(serviceUnit)) {
-      _commandRunnerCubit.setStatus('无效服务名');
+      _commandRunner.setStatus('无效服务名');
       return;
     }
     if (action == 'logs') {
@@ -125,12 +127,14 @@ class ServicesCubit extends ChangeNotifier {
     }
     final command = serviceActionCommand(serviceUnit, action);
     if (command == null) {
-      _commandRunnerCubit.setStatus('未知服务操作');
+      _commandRunner.setStatus('未知服务操作');
       return;
     }
-    final result = await _commandRunnerCubit.runCaptureRemote(
-      summary: '${serviceDisplayName(serviceUnit)} $action',
-      command: command,
+    final result = await _commandRunner.runCaptureCommand(
+      command: CommandWithSummary(
+        command: command,
+        summary: '${serviceDisplayName(serviceUnit)} ${serviceActionSummary(action)}',
+      ),
     );
     if (action == 'start' || action == 'stop' || action == 'restart') {
       if (result?.succeeded == true) {
@@ -150,17 +154,18 @@ class ServicesCubit extends ChangeNotifier {
   Future<void> fetchServiceLogs(String service) async {
     final serviceUnit = serviceUnitName(service);
     if (!isSafeServiceName(serviceUnit)) {
-      _commandRunnerCubit.setStatus('无效服务名');
+      _commandRunner.setStatus('无效服务名');
       return;
     }
     serviceLogsService = serviceUnit;
     serviceLogsOutput = '';
     notifyListeners();
 
-    final output = StringBuffer();
-    final result = await _commandRunnerCubit.runCaptureRemote(
-      summary: '查看 ${serviceDisplayName(serviceUnit)} 日志',
-      command: serviceLogsCommand(serviceUnit),
+    final result = await _commandRunner.runCaptureCommand(
+      command: CommandWithSummary(
+        command: serviceLogsCommand(serviceUnit),
+        summary: '查看 ${serviceDisplayName(serviceUnit)} 日志',
+      ),
     );
 
     if (result == null) {
@@ -168,8 +173,7 @@ class ServicesCubit extends ChangeNotifier {
     } else if (result.output.isEmpty) {
       serviceLogsOutput = result.succeeded ? '暂无日志输出' : '查看日志失败';
     } else {
-      output.write(result.output);
-      serviceLogsOutput = output.toString();
+      serviceLogsOutput = result.output;
     }
     notifyListeners();
   }
@@ -189,7 +193,7 @@ class ServicesCubit extends ChangeNotifier {
     try {
       await _servicePreferencesStore.save(target.address, managedServices);
     } catch (error) {
-      _commandRunnerCubit.setStatus('✗ 保存服务列表失败: $error');
+      _commandRunner.setStatus('✗ 保存服务列表失败: $error');
     }
     notifyListeners();
   }
