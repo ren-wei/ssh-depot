@@ -4,9 +4,9 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:pty2/pty2.dart';
+import 'package:ssh_depot/core/process/process_output_chunk.dart';
+import 'package:ssh_depot/core/terminal/terminal_control_sanitizer.dart';
 
-import '../../../core/process/process_output_chunk.dart';
-import '../../../core/terminal/terminal_control_sanitizer.dart';
 import 'ssh_target.dart';
 
 class PtySshSession {

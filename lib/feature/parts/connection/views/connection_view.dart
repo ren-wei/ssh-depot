@@ -3,14 +3,15 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
-
-import '../../../assets/connection_asset.dart';
-import '../../../classes/server_profile.dart';
-import '../../../components/app_scope.dart';
-import '../../../components/depot_snack_bar.dart';
-import '../../../components/depot_scrollbar.dart';
-import '../../../cubits/app_controller.dart';
-import '../../../utils/shell_quote.dart';
+import 'package:ssh_depot/feature/assets/connection_asset.dart';
+import 'package:ssh_depot/feature/classes/server_profile.dart';
+import 'package:ssh_depot/feature/components/app_scope.dart';
+import 'package:ssh_depot/feature/components/depot_scrollbar.dart';
+import 'package:ssh_depot/feature/components/depot_snack_bar.dart';
+import 'package:ssh_depot/feature/cubits/command_runner_cubit.dart';
+import 'package:ssh_depot/feature/cubits/connection_cubit.dart';
+import 'package:ssh_depot/feature/cubits/servers_cubit.dart';
+import 'package:ssh_depot/feature/utils/shell_quote.dart';
 
 const _bg = Color(0xff04130d);
 const _panel = Color(0xff0b2418);
@@ -109,7 +110,10 @@ class _ConnectionContentState extends State<_ConnectionContent> {
 
   @override
   Widget build(BuildContext context) {
-    final controller = AppScope.of(context);
+    final connection = AppScope.connection(context);
+    final runner = AppScope.commandRunner(context);
+    final servers = AppScope.servers(context);
+    final terminal = AppScope.terminal(context);
     final compact = MediaQuery.sizeOf(context).width < 860;
 
     return Container(
@@ -147,11 +151,11 @@ class _ConnectionContentState extends State<_ConnectionContent> {
               SizedBox(
                 width: compact ? double.infinity : 284,
                 child: _SavedServersPanel(
-                  servers: controller.servers,
-                  disabled: controller.isRunning,
+                  servers: servers.servers,
+                  disabled: runner.isRunning,
                   onSelect: _fillServer,
                   onCreate: _clearForm,
-                  onConnect: (server) => _quickLogin(controller, server),
+                  onConnect: (server) => _quickLogin(connection, server),
                   onCopyAuthorizationCommand: _copyAuthorizationCommand,
                 ),
               ),
@@ -161,15 +165,15 @@ class _ConnectionContentState extends State<_ConnectionContent> {
                   nameController: _nameController,
                   hostController: _hostController,
                   userController: _userController,
-                  isRunning: controller.isRunning,
+                  isRunning: runner.isRunning,
                   testSucceeded: _lastTestSucceeded,
                   hostError: _hostError,
                   userError: _userError,
-                  terminalText: controller.terminalLines.join(),
-                  onSubmitted: () => _login(controller),
-                  onTest: () => _testConnection(controller),
-                  onConnect: () => _login(controller),
-                  onSave: () => _save(controller),
+                  terminalText: terminal.terminalLines.join(),
+                  onSubmitted: () => _login(connection),
+                  onTest: () => _testConnection(connection),
+                  onConnect: () => _login(connection),
+                  onSave: () => _save(servers, runner),
                   onCopyTroubleshootCommand: _copyTroubleshootCommand,
                 )
               else
@@ -178,15 +182,15 @@ class _ConnectionContentState extends State<_ConnectionContent> {
                     nameController: _nameController,
                     hostController: _hostController,
                     userController: _userController,
-                    isRunning: controller.isRunning,
+                    isRunning: runner.isRunning,
                     testSucceeded: _lastTestSucceeded,
                     hostError: _hostError,
                     userError: _userError,
-                    terminalText: controller.terminalLines.join(),
-                    onSubmitted: () => _login(controller),
-                    onTest: () => _testConnection(controller),
-                    onConnect: () => _login(controller),
-                    onSave: () => _save(controller),
+                    terminalText: terminal.terminalLines.join(),
+                    onSubmitted: () => _login(connection),
+                    onTest: () => _testConnection(connection),
+                    onConnect: () => _login(connection),
+                    onSave: () => _save(servers, runner),
                     onCopyTroubleshootCommand: _copyTroubleshootCommand,
                   ),
                 ),
@@ -197,35 +201,35 @@ class _ConnectionContentState extends State<_ConnectionContent> {
     );
   }
 
-  Future<void> _testConnection(AppController controller) async {
+  Future<void> _testConnection(ConnectionCubit connection) async {
     final host = _validHostOrNull();
     final user = _validUserOrNull();
     if (host == null || user == null) {
       return;
     }
     setState(() => _lastTestSucceeded = null);
-    final succeeded = await controller.testConnection(host, user: user);
+    final succeeded = await connection.testConnection(host, user: user);
     if (!mounted) {
       return;
     }
     setState(() => _lastTestSucceeded = succeeded);
   }
 
-  Future<void> _login(AppController controller) async {
-    await _connect(controller);
-    if (!mounted || !controller.isConnected) {
+  Future<void> _login(ConnectionCubit connection) async {
+    await _connect(connection);
+    if (!mounted || !connection.isConnected) {
       return;
     }
     context.go('/overview');
   }
 
-  Future<void> _connect(AppController controller) async {
+  Future<void> _connect(ConnectionCubit connection) async {
     final host = _validHostOrNull();
     final user = _validUserOrNull();
     if (host == null || user == null) {
       return;
     }
-    await controller.connect(host, user: user);
+    await connection.connect(host, user: user);
   }
 
   String? _validHostOrNull() {
@@ -262,14 +266,14 @@ class _ConnectionContentState extends State<_ConnectionContent> {
   }
 
   Future<void> _quickLogin(
-    AppController controller,
+    ConnectionCubit connection,
     ServerProfile server,
   ) async {
     _fillServer(server);
-    await _login(controller);
+    await _login(connection);
   }
 
-  Future<void> _save(AppController controller) async {
+  Future<void> _save(ServersCubit servers, CommandRunnerCubit runner) async {
     final host = _hostController.text.trim();
     final user = _validUserOrNull();
     if (host.isEmpty) {
@@ -280,13 +284,17 @@ class _ConnectionContentState extends State<_ConnectionContent> {
       return;
     }
     setState(() => _hostError = null);
-    await controller.saveServer(
-      ServerProfile(
-        name: _nameController.text.trim().isEmpty ? host : _nameController.text.trim(),
-        host: host,
-        user: user,
-      ),
+    final server = ServerProfile(
+      name: _nameController.text.trim().isEmpty ? host : _nameController.text.trim(),
+      host: host,
+      user: user,
     );
+    try {
+      await servers.saveServer(server);
+      runner.setStatus('✓ 已保存服务器 ${server.target}');
+    } catch (error) {
+      runner.setStatus('✗ 保存服务器失败: $error');
+    }
   }
 
   Future<void> _copyAuthorizationCommand() async {

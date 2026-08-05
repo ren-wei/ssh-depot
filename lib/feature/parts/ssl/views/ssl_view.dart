@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-
-import '../../../classes/nginx_site.dart';
-import '../../../components/app_scope.dart';
-import '../../../components/app_shell.dart';
-import '../../../components/depot_content.dart';
-import '../../../components/depot_scrollbar.dart';
-import '../../../components/depot_snack_bar.dart';
-import '../../../cubits/app_controller.dart';
+import 'package:ssh_depot/feature/classes/nginx_site.dart';
+import 'package:ssh_depot/feature/components/app_scope.dart';
+import 'package:ssh_depot/feature/components/app_shell.dart';
+import 'package:ssh_depot/feature/components/depot_content.dart';
+import 'package:ssh_depot/feature/components/depot_scrollbar.dart';
+import 'package:ssh_depot/feature/components/depot_snack_bar.dart';
+import 'package:ssh_depot/feature/parts/ssl/cubits/ssl_cubit.dart';
 
 class SslView extends StatefulWidget {
   const SslView({super.key});
@@ -28,12 +27,13 @@ class _SslViewState extends State<SslView> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final controller = AppScope.of(context);
-    if (!_requestedInitialRefresh && controller.isConnected && controller.nginxCertificates.isEmpty) {
+    final connection = AppScope.connection(context);
+    final ssl = AppScope.ssl(context);
+    if (!_requestedInitialRefresh && connection.isConnected && ssl.nginxCertificates.isEmpty) {
       _requestedInitialRefresh = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          controller.refreshNginxSites();
+          ssl.refreshCertificates();
         }
       });
     }
@@ -50,8 +50,10 @@ class _SslViewState extends State<SslView> {
 
   @override
   Widget build(BuildContext context) {
-    final controller = AppScope.of(context);
-    final disabled = !controller.isConnected || controller.isRunning;
+    final connection = AppScope.connection(context);
+    final runner = AppScope.commandRunner(context);
+    final controller = AppScope.ssl(context);
+    final disabled = !connection.isConnected || runner.isRunning;
     final certificates = controller.nginxCertificates;
 
     return DepotContentPage(
@@ -59,8 +61,8 @@ class _SslViewState extends State<SslView> {
       subtitle: '管理当前服务器上的 certbot 证书资产；网站列表只展示证书状态。',
       actions: [
         DepotStatusPill(
-          label: controller.isRunning ? '执行中' : (controller.isConnected ? '就绪' : '未连接'),
-          color: controller.isConnected ? depotAccent : depotYellow,
+          label: runner.isRunning ? '执行中' : (connection.isConnected ? '就绪' : '未连接'),
+          color: connection.isConnected ? depotAccent : depotYellow,
         ),
       ],
       children: [
@@ -130,7 +132,7 @@ class _SslViewState extends State<SslView> {
                   const Spacer(),
                   FilledButton.icon(
                     onPressed: disabled ? null : () => _confirmRequestCertificate(controller),
-                    icon: controller.isRunning
+                    icon: runner.isRunning
                         ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                         : const Icon(Icons.verified_user_outlined, size: 18),
                     label: const Text('申请并配置 HTTPS'),
@@ -159,7 +161,7 @@ class _SslViewState extends State<SslView> {
                 title: '证书列表',
                 subtitle: certificates.isEmpty ? '暂无证书，点击刷新读取 certbot 证书。' : '共 ${certificates.length} 个证书。',
                 trailing: FilledButton.icon(
-                  onPressed: disabled ? null : controller.refreshNginxSites,
+                  onPressed: disabled ? null : controller.refreshCertificates,
                   icon: const Icon(Icons.refresh, size: 18),
                   label: const Text('刷新'),
                   style: depotFilledButtonStyle(),
@@ -182,7 +184,7 @@ class _SslViewState extends State<SslView> {
               if (certificates.isEmpty)
                 DepotRow(
                   child: Text(
-                    controller.isConnected ? '点击刷新读取证书列表' : '请先连接服务器',
+                    connection.isConnected ? '点击刷新读取证书列表' : '请先连接服务器',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: depotMuted),
                   ),
                 )
@@ -220,7 +222,7 @@ class _SslViewState extends State<SslView> {
     );
   }
 
-  Future<void> _confirmRequestCertificate(AppController controller) {
+  Future<void> _confirmRequestCertificate(SslCubit controller) {
     final domains = _domainsController.text.trim();
     final email = _emailController.text.trim();
     final webroot = _webrootController.text.trim();
@@ -289,7 +291,7 @@ class _SslViewState extends State<SslView> {
     }
   }
 
-  Future<void> _showAddDomainDialog(AppController controller, NginxCertificateInfo certificate) async {
+  Future<void> _showAddDomainDialog(SslCubit controller, NginxCertificateInfo certificate) async {
     final plan = await showDialog<_CertificateDomainUpdatePlan>(
       context: context,
       builder: (context) => _AddDomainDialog(certificate: certificate),
@@ -312,7 +314,7 @@ class _SslViewState extends State<SslView> {
     );
   }
 
-  Future<void> _showRemoveDomainDialog(AppController controller, NginxCertificateInfo certificate) async {
+  Future<void> _showRemoveDomainDialog(SslCubit controller, NginxCertificateInfo certificate) async {
     final plan = await showDialog<_CertificateDomainUpdatePlan>(
       context: context,
       builder: (context) => _RemoveDomainDialog(certificate: certificate),

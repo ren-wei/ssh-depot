@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-
-import '../parts/ssl/views/ssl_view.dart';
+import 'package:ssh_depot/feature/parts/ssl/views/ssl_view.dart';
 
 class SslPage extends StatelessWidget {
   const SslPage({super.key});

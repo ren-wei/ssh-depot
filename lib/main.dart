@@ -1,15 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-
-import 'feature/components/app_scope.dart';
-import 'feature/components/app_shell.dart';
-import 'feature/cubits/app_controller.dart';
-import 'feature/pages/nginx_page.dart';
-import 'feature/pages/overview_page.dart';
-import 'feature/pages/packages_page.dart';
-import 'feature/pages/services_page.dart';
-import 'feature/pages/settings_page.dart';
-import 'feature/pages/ssl_page.dart';
+import 'package:ssh_depot/feature/components/app_scope.dart';
+import 'package:ssh_depot/feature/components/app_shell.dart';
+import 'package:ssh_depot/feature/pages/nginx_page.dart';
+import 'package:ssh_depot/feature/pages/overview_page.dart';
+import 'package:ssh_depot/feature/pages/packages_page.dart';
+import 'package:ssh_depot/feature/pages/services_page.dart';
+import 'package:ssh_depot/feature/pages/settings_page.dart';
+import 'package:ssh_depot/feature/pages/ssl_page.dart';
 
 void main() {
   runApp(const SshDepotApp());
@@ -23,19 +21,9 @@ class SshDepotApp extends StatefulWidget {
 }
 
 class _SshDepotAppState extends State<SshDepotApp> {
-  late final AppController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AppController();
-    _controller.load();
-  }
-
   @override
   Widget build(BuildContext context) {
     return AppScope(
-      controller: _controller,
       child: MaterialApp.router(
         title: 'ssh depot',
         theme: ThemeData(

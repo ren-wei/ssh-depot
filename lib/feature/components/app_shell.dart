@@ -2,12 +2,11 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:ssh_depot/feature/components/app_scope.dart';
+import 'package:ssh_depot/feature/components/depot_scrollbar.dart';
+import 'package:ssh_depot/feature/cubits/terminal_cubit.dart';
+import 'package:ssh_depot/feature/parts/connection/views/connection_view.dart';
 import 'package:xterm/xterm.dart';
-
-import '../cubits/app_controller.dart';
-import '../parts/connection/views/connection_view.dart';
-import 'app_scope.dart';
-import 'depot_scrollbar.dart';
 
 const depotBg = Color(0xff02110b);
 const depotPanel = Color(0xff0b2418);
@@ -36,12 +35,15 @@ class AppShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final selectedIndex = _selectedIndexForPath(selectedPath);
-    final controller = AppScope.of(context);
+    final connection = AppScope.connection(context);
+    final runner = AppScope.commandRunner(context);
+    final terminal = AppScope.terminal(context);
+    final servers = AppScope.servers(context);
 
     return AnimatedBuilder(
-      animation: controller,
+      animation: connection,
       builder: (context, _) {
-        final target = controller.target;
+        final target = connection.target;
         if (target == null) {
           return const ConnectionView();
         }
@@ -59,11 +61,11 @@ class AppShell extends StatelessWidget {
                       Column(
                         children: [
                           _TopBar(
-                            title: _serverTitle(controller),
+                            title: servers.titleFor(target),
                             target: target.address,
-                            isRunning: controller.isRunning,
-                            onCancel: controller.cancelRunning,
-                            onDisconnect: controller.disconnect,
+                            isRunning: runner.isRunning,
+                            onCancel: runner.cancelRunning,
+                            onDisconnect: connection.disconnect,
                           ),
                           const SizedBox(height: 18),
                           Expanded(
@@ -72,7 +74,7 @@ class AppShell extends StatelessWidget {
                               children: [
                                 _Sidebar(
                                   selectedIndex: selectedIndex,
-                                  statusLine: controller.statusLine,
+                                  statusLine: runner.statusLine,
                                   onSelect: (index) {
                                     final item = _items[index];
                                     if (item.path == null) {
@@ -90,7 +92,7 @@ class AppShell extends StatelessWidget {
                           const _TerminalStatusBar(),
                         ],
                       ),
-                      if (controller.terminalExpanded)
+                      if (terminal.terminalExpanded)
                         const Positioned(
                           left: 0,
                           right: 0,
@@ -107,19 +109,6 @@ class AppShell extends StatelessWidget {
       },
     );
   }
-}
-
-String _serverTitle(AppController controller) {
-  final target = controller.target;
-  if (target == null) {
-    return '';
-  }
-  for (final server in controller.servers) {
-    if (server.host == target.host && server.user == target.user && server.name.trim().isNotEmpty) {
-      return server.name.trim();
-    }
-  }
-  return target.address;
 }
 
 int _selectedIndexForPath(String path) {
@@ -468,10 +457,11 @@ class _TerminalStatusBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final controller = AppScope.of(context);
-    final failed = controller.statusLine.startsWith('✗');
-    final succeeded = controller.statusLine.startsWith('✓');
-    final statusText = _statusSummaryText(controller.statusLine);
+    final runner = AppScope.commandRunner(context);
+    final terminal = AppScope.terminal(context);
+    final failed = runner.statusLine.startsWith('✗');
+    final succeeded = runner.statusLine.startsWith('✓');
+    final statusText = _statusSummaryText(runner.statusLine);
     return _FramePanel(
       height: 58,
       borderRadius: 20,
@@ -498,13 +488,13 @@ class _TerminalStatusBar extends StatelessWidget {
           ],
           const SizedBox(width: 18),
           IconButton(
-            onPressed: controller.toggleTerminal,
+            onPressed: terminal.toggleTerminal,
             icon: AnimatedRotation(
-              turns: controller.terminalExpanded ? 0.5 : 0,
+              turns: terminal.terminalExpanded ? 0.5 : 0,
               duration: const Duration(milliseconds: 160),
               child: const Icon(Icons.keyboard_arrow_up, color: depotText),
             ),
-            tooltip: controller.terminalExpanded ? '收起终端' : '展开终端',
+            tooltip: terminal.terminalExpanded ? '收起终端' : '展开终端',
           ),
         ],
       ),
@@ -532,7 +522,7 @@ class _TerminalPanel extends StatefulWidget {
 class _TerminalPanelState extends State<_TerminalPanel> {
   final _terminal = Terminal(maxLines: 10000);
   final _terminalController = TerminalController();
-  AppController? _controller;
+  TerminalCubit? _terminalCubit;
   int _writtenLength = 0;
 
   @override
@@ -543,30 +533,30 @@ class _TerminalPanelState extends State<_TerminalPanel> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final nextController = AppScope.of(context);
-    if (identical(_controller, nextController)) {
+    final nextTerminalCubit = AppScope.terminal(context);
+    if (identical(_terminalCubit, nextTerminalCubit)) {
       return;
     }
-    _controller?.removeListener(_scrollToBottom);
-    _controller = nextController;
-    nextController.addListener(_scrollToBottom);
-    _syncTerminal(nextController.terminalRawText);
+    _terminalCubit?.removeListener(_scrollToBottom);
+    _terminalCubit = nextTerminalCubit;
+    nextTerminalCubit.addListener(_scrollToBottom);
+    _syncTerminal(nextTerminalCubit.terminalRawText);
   }
 
   @override
   void dispose() {
-    _controller?.removeListener(_scrollToBottom);
+    _terminalCubit?.removeListener(_scrollToBottom);
     _terminalController.dispose();
     super.dispose();
   }
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final controller = _controller;
-      if (controller == null) {
+      final terminalCubit = _terminalCubit;
+      if (terminalCubit == null) {
         return;
       }
-      _syncTerminal(controller.terminalRawText);
+      _syncTerminal(terminalCubit.terminalRawText);
     });
   }
 
@@ -585,7 +575,7 @@ class _TerminalPanelState extends State<_TerminalPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final controller = _controller ?? AppScope.of(context);
+    final terminalCubit = _terminalCubit ?? AppScope.terminal(context);
     return _FramePanel(
       height: 260,
       borderRadius: 20,
@@ -606,7 +596,7 @@ class _TerminalPanelState extends State<_TerminalPanel> {
                         Theme.of(context).textTheme.bodySmall?.copyWith(color: depotText, fontWeight: FontWeight.w800)),
                 const Spacer(),
                 IconButton(
-                  onPressed: controller.toggleTerminal,
+                  onPressed: terminalCubit.toggleTerminal,
                   icon: const Icon(Icons.keyboard_arrow_down, color: depotMuted),
                   tooltip: '收起终端',
                 ),
@@ -614,7 +604,7 @@ class _TerminalPanelState extends State<_TerminalPanel> {
             ),
           ),
           Expanded(
-            child: controller.terminalRawText.isEmpty
+            child: terminalCubit.terminalRawText.isEmpty
                 ? const Align(
                     alignment: Alignment.topLeft,
                     child: Padding(

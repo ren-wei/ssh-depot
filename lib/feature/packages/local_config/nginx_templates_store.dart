@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:yaml/yaml.dart';
 
-import '../../classes/nginx_template_definition.dart';
+import 'package:ssh_depot/feature/classes/nginx_template_definition.dart';
 import 'config_paths.dart';
 
 class NginxTemplatesStore {

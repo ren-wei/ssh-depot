@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
-
-import '../../../classes/overview_snapshot.dart';
-import '../../../classes/server_profile.dart';
-import '../../../components/app_scope.dart';
-import '../../../components/app_shell.dart';
-import '../../../components/depot_content.dart';
+import 'package:ssh_depot/feature/classes/overview_snapshot.dart';
+import 'package:ssh_depot/feature/classes/server_profile.dart';
+import 'package:ssh_depot/feature/components/app_scope.dart';
+import 'package:ssh_depot/feature/components/app_shell.dart';
+import 'package:ssh_depot/feature/components/depot_content.dart';
 
 class SettingsView extends StatefulWidget {
   const SettingsView({super.key});
@@ -28,7 +27,10 @@ class _SettingsViewState extends State<SettingsView> {
 
   @override
   Widget build(BuildContext context) {
-    final controller = AppScope.of(context);
+    final servers = AppScope.servers(context);
+    final connection = AppScope.connection(context);
+    final runner = AppScope.commandRunner(context);
+    final services = AppScope.services(context);
     return DepotContentPage(
       title: '设置',
       subtitle: '维护服务器配置与默认管理项。',
@@ -75,13 +77,16 @@ class _SettingsViewState extends State<SettingsView> {
                       if (host.isEmpty) {
                         return;
                       }
-                      controller.saveServer(
-                        ServerProfile(
-                          name: _nameController.text.trim().isEmpty ? host : _nameController.text.trim(),
-                          host: host,
-                          remark: _remarkController.text.trim().isEmpty ? null : _remarkController.text.trim(),
-                        ),
+                      final server = ServerProfile(
+                        name: _nameController.text.trim().isEmpty ? host : _nameController.text.trim(),
+                        host: host,
+                        remark: _remarkController.text.trim().isEmpty ? null : _remarkController.text.trim(),
                       );
+                      servers.saveServer(server).then((_) {
+                        runner.setStatus('✓ 已保存服务器 ${server.target}');
+                      }).catchError((Object error) {
+                        runner.setStatus('✗ 保存服务器失败: $error');
+                      });
                     },
                     icon: const Icon(Icons.save_outlined, size: 18),
                     label: const Text('保存服务器'),
@@ -100,10 +105,10 @@ class _SettingsViewState extends State<SettingsView> {
             children: [
               DepotSectionHeader(
                 title: '服务器列表',
-                subtitle: controller.servers.isEmpty ? '暂无已保存服务器' : '共 ${controller.servers.length} 条配置',
+                subtitle: servers.servers.isEmpty ? '暂无已保存服务器' : '共 ${servers.servers.length} 条配置',
               ),
               const SizedBox(height: 18),
-              if (controller.servers.isEmpty)
+              if (servers.servers.isEmpty)
                 DepotRow(
                   child: Text(
                     '暂无服务器配置',
@@ -111,18 +116,21 @@ class _SettingsViewState extends State<SettingsView> {
                   ),
                 )
               else
-                for (final server in controller.servers) ...[
+                for (final server in servers.servers) ...[
                   _ServerRow(
                     server: server,
-                    selected: controller.target?.host == server.host && controller.target?.user == server.user,
+                    selected: connection.target?.host == server.host && connection.target?.user == server.user,
                     onFill: () {
                       _nameController.text = server.name;
                       _hostController.text = server.host;
                       _remarkController.text = server.remark ?? '';
                     },
-                    onDelete: () => controller.deleteServer(server),
+                    onDelete: () async {
+                      await connection.deleteConnectedServerIfMatches(server);
+                      await servers.deleteServer(server);
+                    },
                   ),
-                  if (server != controller.servers.last) const SizedBox(height: 10),
+                  if (server != servers.servers.last) const SizedBox(height: 10),
                 ],
             ],
           ),
@@ -142,7 +150,7 @@ class _SettingsViewState extends State<SettingsView> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        controller.managedServices.map(serviceDisplayName).join(' / '),
+                        services.managedServices.map(serviceDisplayName).join(' / '),
                         style: Theme.of(context)
                             .textTheme
                             .bodyMedium

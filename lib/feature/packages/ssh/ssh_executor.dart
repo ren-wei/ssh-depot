@@ -1,5 +1,6 @@
-import '../../../core/process/local_process_runner.dart';
-import '../../../core/process/process_output_chunk.dart';
+import 'package:ssh_depot/core/process/local_process_runner.dart';
+import 'package:ssh_depot/core/process/process_output_chunk.dart';
+
 import 'pty_ssh_session.dart';
 import 'ssh_command.dart';
 import 'ssh_target.dart';

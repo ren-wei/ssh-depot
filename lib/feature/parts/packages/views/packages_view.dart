@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-
-import '../../../components/app_scope.dart';
-import '../../../components/app_shell.dart';
-import '../../../components/depot_content.dart';
+import 'package:ssh_depot/feature/components/app_scope.dart';
+import 'package:ssh_depot/feature/components/app_shell.dart';
+import 'package:ssh_depot/feature/components/depot_content.dart';
 
 class PackagesView extends StatefulWidget {
   const PackagesView({super.key});
@@ -22,8 +21,10 @@ class _PackagesViewState extends State<PackagesView> {
 
   @override
   Widget build(BuildContext context) {
-    final controller = AppScope.of(context);
-    final disabled = !controller.isConnected || controller.isRunning;
+    final connection = AppScope.connection(context);
+    final runner = AppScope.commandRunner(context);
+    final packages = AppScope.packages(context);
+    final disabled = !connection.isConnected || runner.isRunning;
     return DepotContentPage(
       title: '软件包管理',
       subtitle: '使用当前 SSH 连接执行 apt 安装、卸载和常用包快捷输入。',
@@ -35,10 +36,10 @@ class _PackagesViewState extends State<PackagesView> {
             children: [
               DepotSectionHeader(
                 title: '包操作',
-                subtitle: controller.isConnected ? '目标主机已连接' : '请先连接服务器',
+                subtitle: connection.isConnected ? '目标主机已连接' : '请先连接服务器',
                 trailing: DepotStatusPill(
-                  label: controller.isRunning ? '执行中' : (controller.isConnected ? '就绪' : '未连接'),
-                  color: controller.isConnected ? depotAccent : depotYellow,
+                  label: runner.isRunning ? '执行中' : (connection.isConnected ? '就绪' : '未连接'),
+                  color: connection.isConnected ? depotAccent : depotYellow,
                 ),
               ),
               const SizedBox(height: 20),
@@ -56,13 +57,13 @@ class _PackagesViewState extends State<PackagesView> {
                     ),
                   ),
                   FilledButton.icon(
-                    onPressed: disabled ? null : () => controller.installPackage(_packageController.text),
+                    onPressed: disabled ? null : () => packages.installPackage(_packageController.text),
                     icon: const Icon(Icons.download, size: 18),
                     label: const Text('安装'),
                     style: depotFilledButtonStyle(),
                   ),
                   OutlinedButton.icon(
-                    onPressed: disabled ? null : () => controller.removePackage(_packageController.text),
+                    onPressed: disabled ? null : () => packages.removePackage(_packageController.text),
                     icon: const Icon(Icons.delete_outline, size: 18),
                     label: const Text('卸载'),
                     style: depotOutlinedButtonStyle(),

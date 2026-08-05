@@ -1,4 +1,4 @@
-import '../../classes/overview_snapshot.dart';
+import 'package:ssh_depot/feature/classes/overview_snapshot.dart';
 
 class OverviewParser {
   const OverviewParser();

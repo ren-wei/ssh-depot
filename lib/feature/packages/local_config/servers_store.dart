@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:yaml/yaml.dart';
 
-import '../../classes/server_profile.dart';
+import 'package:ssh_depot/feature/classes/server_profile.dart';
 import 'config_paths.dart';
 
 class ServersStore {

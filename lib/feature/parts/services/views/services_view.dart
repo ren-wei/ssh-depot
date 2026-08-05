@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-
-import '../../../classes/overview_snapshot.dart';
-import '../../../components/app_scope.dart';
-import '../../../components/app_shell.dart';
-import '../../../components/depot_content.dart';
-import '../../../components/depot_scrollbar.dart';
-import '../../../components/depot_snack_bar.dart';
-import '../../../cubits/app_controller.dart';
+import 'package:ssh_depot/feature/classes/overview_snapshot.dart';
+import 'package:ssh_depot/feature/components/app_scope.dart';
+import 'package:ssh_depot/feature/components/app_shell.dart';
+import 'package:ssh_depot/feature/components/depot_content.dart';
+import 'package:ssh_depot/feature/components/depot_scrollbar.dart';
+import 'package:ssh_depot/feature/components/depot_snack_bar.dart';
+import 'package:ssh_depot/feature/parts/services/cubits/services_cubit.dart';
 
 class ServicesView extends StatefulWidget {
   const ServicesView({super.key});
@@ -19,12 +18,15 @@ class ServicesView extends StatefulWidget {
 class _ServicesViewState extends State<ServicesView> {
   @override
   Widget build(BuildContext context) {
-    final controller = AppScope.of(context);
-    final services = controller.managedServices;
-    final disabled = !controller.isConnected || controller.isRunning;
+    final connection = AppScope.connection(context);
+    final runner = AppScope.commandRunner(context);
+    final servicesCubit = AppScope.services(context);
+    final overview = AppScope.overview(context);
+    final services = servicesCubit.managedServices;
+    final disabled = !connection.isConnected || runner.isRunning;
     final serviceSnapshots = {
-      for (final service in controller.overviewSnapshot?.services ?? const <ServiceSnapshot>[]) service.name: service,
-      ...controller.serviceSnapshots,
+      for (final service in overview.overviewSnapshot?.services ?? const <ServiceSnapshot>[]) service.name: service,
+      ...servicesCubit.serviceSnapshots,
     };
 
     return DepotContentPage(
@@ -32,8 +34,8 @@ class _ServicesViewState extends State<ServicesView> {
       subtitle: '通过当前 SSH 连接执行 systemctl 与 journalctl 操作。',
       actions: [
         DepotStatusPill(
-          label: controller.isRunning ? '执行中' : (controller.isConnected ? '就绪' : '未连接'),
-          color: controller.isConnected ? depotAccent : depotYellow,
+          label: runner.isRunning ? '执行中' : (connection.isConnected ? '就绪' : '未连接'),
+          color: connection.isConnected ? depotAccent : depotYellow,
         ),
       ],
       children: [
@@ -50,7 +52,7 @@ class _ServicesViewState extends State<ServicesView> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: FilledButton.icon(
-                  onPressed: () => _showAddServiceDialog(controller),
+                  onPressed: () => _showAddServiceDialog(servicesCubit),
                   icon: const Icon(Icons.add, size: 18),
                   label: const Text('添加服务'),
                   style: depotFilledButtonStyle(),
@@ -75,11 +77,11 @@ class _ServicesViewState extends State<ServicesView> {
                   service: service,
                   snapshot: serviceSnapshots[service],
                   disabled: disabled,
-                  onStart: () => _confirmServiceAction(controller, service, 'start'),
-                  onStop: () => _confirmServiceAction(controller, service, 'stop'),
-                  onRestart: () => _confirmServiceAction(controller, service, 'restart'),
-                  onLogs: () => controller.fetchServiceLogs(service),
-                  onRemove: () => _confirmRemoveService(controller, service),
+                  onStart: () => _confirmServiceAction(servicesCubit, service, 'start'),
+                  onStop: () => _confirmServiceAction(servicesCubit, service, 'stop'),
+                  onRestart: () => _confirmServiceAction(servicesCubit, service, 'restart'),
+                  onLogs: () => servicesCubit.fetchServiceLogs(service),
+                  onRemove: () => _confirmRemoveService(servicesCubit, service),
                 ),
                 if (service != services.last) const SizedBox(height: 10),
               ],
@@ -88,22 +90,22 @@ class _ServicesViewState extends State<ServicesView> {
         ),
         const SizedBox(height: 22),
         _ServiceLogsPanel(
-          service: controller.serviceLogsService,
-          output: controller.serviceLogsOutput,
-          isRunning: controller.isRunning,
+          service: servicesCubit.serviceLogsService,
+          output: servicesCubit.serviceLogsOutput,
+          isRunning: runner.isRunning,
         ),
       ],
     );
   }
 
-  Future<void> _showAddServiceDialog(AppController controller) async {
+  Future<void> _showAddServiceDialog(ServicesCubit servicesCubit) async {
     await showDialog<void>(
       context: context,
-      builder: (context) => _AddServiceDialog(controller: controller),
+      builder: (context) => _AddServiceDialog(servicesCubit: servicesCubit),
     );
   }
 
-  Future<void> _confirmRemoveService(AppController controller, String service) async {
+  Future<void> _confirmRemoveService(ServicesCubit servicesCubit, String service) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) {
@@ -139,11 +141,11 @@ class _ServicesViewState extends State<ServicesView> {
       },
     );
     if (confirmed == true) {
-      await controller.removeManagedService(service);
+      await servicesCubit.removeManagedService(service);
     }
   }
 
-  Future<void> _confirmServiceAction(AppController controller, String service, String action) async {
+  Future<void> _confirmServiceAction(ServicesCubit servicesCubit, String service, String action) async {
     final actionLabel = switch (action) {
       'start' => '启动',
       'stop' => '停止',
@@ -186,15 +188,15 @@ class _ServicesViewState extends State<ServicesView> {
       },
     );
     if (confirmed == true) {
-      await controller.serviceAction(service, action);
+      await servicesCubit.serviceAction(service, action);
     }
   }
 }
 
 class _AddServiceDialog extends StatefulWidget {
-  const _AddServiceDialog({required this.controller});
+  const _AddServiceDialog({required this.servicesCubit});
 
-  final AppController controller;
+  final ServicesCubit servicesCubit;
 
   @override
   State<_AddServiceDialog> createState() => _AddServiceDialogState();
@@ -209,7 +211,7 @@ class _AddServiceDialogState extends State<_AddServiceDialog> {
   @override
   void initState() {
     super.initState();
-    _servicesFuture = widget.controller.searchRemoteServices();
+    _servicesFuture = widget.servicesCubit.searchRemoteServices();
     _queryController.addListener(() {
       setState(() => _query = _queryController.text.trim().toLowerCase());
     });
@@ -278,7 +280,7 @@ class _AddServiceDialogState extends State<_AddServiceDialog> {
                       separatorBuilder: (context, index) => const SizedBox(height: 8),
                       itemBuilder: (context, index) {
                         final service = filteredServices[index];
-                        final added = widget.controller.managedServices.contains(service);
+                        final added = widget.servicesCubit.managedServices.contains(service);
                         return DepotRow(
                           height: 54,
                           child: Row(
@@ -304,7 +306,7 @@ class _AddServiceDialogState extends State<_AddServiceDialog> {
                                   width: 76,
                                   child: FilledButton(
                                     onPressed: () async {
-                                      await widget.controller.addManagedService(service);
+                                      await widget.servicesCubit.addManagedService(service);
                                       if (context.mounted) {
                                         Navigator.of(context).pop();
                                       }

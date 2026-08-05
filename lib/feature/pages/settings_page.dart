@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-
-import '../parts/settings/views/settings_view.dart';
+import 'package:ssh_depot/feature/parts/settings/views/settings_view.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});

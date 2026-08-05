@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
-
-import '../../../classes/nginx_site.dart';
-import '../../../classes/nginx_template_definition.dart';
-import '../../../components/app_scope.dart';
-import '../../../components/app_shell.dart';
-import '../../../components/depot_content.dart';
-import '../../../components/depot_scrollbar.dart';
-import '../../../cubits/app_controller.dart';
+import 'package:ssh_depot/feature/classes/nginx_site.dart';
+import 'package:ssh_depot/feature/classes/nginx_template_definition.dart';
+import 'package:ssh_depot/feature/components/app_scope.dart';
+import 'package:ssh_depot/feature/components/app_shell.dart';
+import 'package:ssh_depot/feature/components/depot_content.dart';
+import 'package:ssh_depot/feature/components/depot_scrollbar.dart';
+import 'package:ssh_depot/feature/parts/nginx/cubits/nginx_cubit.dart';
 
 class NginxView extends StatefulWidget {
   const NginxView({super.key});
@@ -21,12 +20,13 @@ class _NginxViewState extends State<NginxView> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final controller = AppScope.of(context);
-    if (!_requestedInitialRefresh && controller.isConnected && controller.nginxSites.isEmpty) {
+    final connection = AppScope.connection(context);
+    final nginx = AppScope.nginx(context);
+    if (!_requestedInitialRefresh && connection.isConnected && nginx.nginxSites.isEmpty) {
       _requestedInitialRefresh = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          controller.refreshNginxSites();
+          nginx.refreshNginxSites();
         }
       });
     }
@@ -34,8 +34,10 @@ class _NginxViewState extends State<NginxView> {
 
   @override
   Widget build(BuildContext context) {
-    final controller = AppScope.of(context);
-    final disabled = !controller.isConnected || controller.isRunning;
+    final connection = AppScope.connection(context);
+    final runner = AppScope.commandRunner(context);
+    final controller = AppScope.nginx(context);
+    final disabled = !connection.isConnected || runner.isRunning;
     final sites = controller.nginxSites;
 
     return DepotContentPage(
@@ -98,7 +100,7 @@ class _NginxViewState extends State<NginxView> {
               if (sites.isEmpty)
                 DepotRow(
                   child: Text(
-                    controller.isConnected ? '点击刷新读取网站列表' : '请先连接服务器',
+                    connection.isConnected ? '点击刷新读取网站列表' : '请先连接服务器',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: depotMuted),
                   ),
                 )
@@ -121,21 +123,21 @@ class _NginxViewState extends State<NginxView> {
     );
   }
 
-  Future<void> _openConfigDialog(AppController controller, NginxSite site) async {
+  Future<void> _openConfigDialog(NginxCubit controller, NginxSite site) async {
     await showDialog<void>(
       context: context,
       builder: (context) => _SiteConfigDialog(controller: controller, site: site),
     );
   }
 
-  Future<void> _openCreateSiteDialog(AppController controller) async {
+  Future<void> _openCreateSiteDialog(NginxCubit controller) async {
     await showDialog<void>(
       context: context,
       builder: (context) => _CreateSiteDialog(controller: controller),
     );
   }
 
-  Future<void> _confirmDeleteSite(AppController controller, NginxSite site) async {
+  Future<void> _confirmDeleteSite(NginxCubit controller, NginxSite site) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) {
@@ -295,7 +297,7 @@ class _InlineStatus extends StatelessWidget {
 class _CreateSiteDialog extends StatefulWidget {
   const _CreateSiteDialog({required this.controller});
 
-  final AppController controller;
+  final NginxCubit controller;
 
   @override
   State<_CreateSiteDialog> createState() => _CreateSiteDialogState();
@@ -634,7 +636,7 @@ class _SaveTemplateDialog extends StatefulWidget {
     required this.content,
   });
 
-  final AppController controller;
+  final NginxCubit controller;
   final String content;
 
   @override
@@ -726,7 +728,7 @@ class _SiteConfigDialog extends StatefulWidget {
     required this.site,
   });
 
-  final AppController controller;
+  final NginxCubit controller;
   final NginxSite site;
 
   @override

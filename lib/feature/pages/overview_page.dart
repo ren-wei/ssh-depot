@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
-
-import '../components/app_scope.dart';
-import '../components/app_shell.dart';
-import '../components/depot_scrollbar.dart';
-import '../classes/overview_snapshot.dart';
+import 'package:ssh_depot/feature/classes/overview_snapshot.dart';
+import 'package:ssh_depot/feature/components/app_scope.dart';
+import 'package:ssh_depot/feature/components/app_shell.dart';
+import 'package:ssh_depot/feature/components/depot_scrollbar.dart';
 
 class OverviewPage extends StatefulWidget {
   const OverviewPage({super.key});
@@ -25,12 +24,14 @@ class _OverviewPageState extends State<OverviewPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final controller = AppScope.of(context);
-    if (!_requestedInitialRefresh && controller.isConnected && controller.overviewSnapshot == null) {
+    final connection = AppScope.connection(context);
+    final overview = AppScope.overview(context);
+    final services = AppScope.services(context);
+    if (!_requestedInitialRefresh && connection.isConnected && overview.overviewSnapshot == null) {
       _requestedInitialRefresh = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          controller.refreshOverview();
+          overview.refreshOverview(services.managedServices);
         }
       });
     }
@@ -38,9 +39,13 @@ class _OverviewPageState extends State<OverviewPage> {
 
   @override
   Widget build(BuildContext context) {
-    final controller = AppScope.of(context);
-    final target = controller.target;
-    final snapshot = controller.overviewSnapshot;
+    final connection = AppScope.connection(context);
+    final runner = AppScope.commandRunner(context);
+    final overview = AppScope.overview(context);
+    final services = AppScope.services(context);
+    final history = AppScope.operationHistory(context);
+    final target = connection.target;
+    final snapshot = overview.overviewSnapshot;
 
     return ColoredBox(
       color: Colors.transparent,
@@ -53,8 +58,10 @@ class _OverviewPageState extends State<OverviewPage> {
             _HeroPanel(
               targetLabel: target?.address ?? '未连接',
               snapshot: snapshot,
-              isRunning: controller.overviewLoading || controller.isRunning,
-              onRefresh: controller.overviewLoading || controller.isRunning ? null : controller.refreshOverview,
+              isRunning: overview.overviewLoading || runner.isRunning,
+              onRefresh: overview.overviewLoading || runner.isRunning
+                  ? null
+                  : () => overview.refreshOverview(services.managedServices),
             ),
             const SizedBox(height: 26),
             Row(
@@ -89,7 +96,7 @@ class _OverviewPageState extends State<OverviewPage> {
                 Expanded(
                   child: _MetricCard(
                     label: '关注服务数',
-                    value: '${controller.managedServices.length}',
+                    value: '${services.managedServices.length}',
                     source: '服务页关注项',
                     color: depotRed,
                   ),
@@ -103,14 +110,14 @@ class _OverviewPageState extends State<OverviewPage> {
                 Expanded(
                   flex: 2,
                   child: _ServiceStatusPanel(
-                    isRunning: controller.isRunning,
-                    managedServices: controller.managedServices,
+                    isRunning: runner.isRunning,
+                    managedServices: services.managedServices,
                     services: snapshot?.services ?? const [],
-                    onServiceAction: controller.serviceAction,
+                    onServiceAction: services.serviceAction,
                   ),
                 ),
                 const SizedBox(width: 22),
-                Expanded(child: _RecentOpsPanel(operations: controller.recentOperations)),
+                Expanded(child: _RecentOpsPanel(operations: history.recentOperations)),
               ],
             ),
           ],

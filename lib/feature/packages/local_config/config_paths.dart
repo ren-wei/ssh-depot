@@ -1,6 +1,6 @@
 import 'package:path/path.dart' as p;
 
-import '../../config.dart';
+import 'package:ssh_depot/feature/config.dart';
 
 class ConfigPaths {
   const ConfigPaths({required this.homeDirectory});

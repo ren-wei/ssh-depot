@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-
-import '../parts/services/views/services_view.dart';
+import 'package:ssh_depot/feature/parts/services/views/services_view.dart';
 
 class ServicesPage extends StatelessWidget {
   const ServicesPage({super.key});
