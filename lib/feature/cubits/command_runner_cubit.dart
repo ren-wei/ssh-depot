@@ -182,7 +182,6 @@ class CommandRunnerCubit extends ChangeNotifier implements RemoteCommandRunner {
   }) {
     return _queue.run(() async {
       isRunning = true;
-      _terminalCubit.append('\n$command\n');
       _setStatus(summary);
 
       int exitCode;

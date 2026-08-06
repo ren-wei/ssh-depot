@@ -111,13 +111,14 @@ class _ConnectionContentState extends State<_ConnectionContent> {
 
   @override
   Widget build(BuildContext context) {
-    final connection = context.read<AppConnectionCubit>();
+    final connection = context.watch<AppConnectionCubit>();
     final runner = _maybeRead<CommandRunnerCubit>(context);
-    final servers = context.read<ServersCubit>();
-    final terminal = _maybeRead<TerminalCubit>(context);
+    final servers = context.watch<ServersCubit>();
+    final terminal = context.watch<TerminalCubit>();
     final compact = MediaQuery.sizeOf(context).width < 860;
     final isRunning = runner?.isRunning ?? false;
-    final terminalText = terminal?.output ?? connection.statusLine;
+    final isTesting = connection.isTesting;
+    final terminalText = terminal.output;
 
     return Container(
       width: compact ? double.infinity : 880,
@@ -155,7 +156,7 @@ class _ConnectionContentState extends State<_ConnectionContent> {
                 width: compact ? double.infinity : 284,
                 child: _SavedServersPanel(
                   servers: servers.servers,
-                  disabled: isRunning,
+                  disabled: isRunning || isTesting,
                   onSelect: _fillServer,
                   onCreate: _clearForm,
                   onConnect: (server) => _quickLogin(connection, server),
@@ -168,7 +169,7 @@ class _ConnectionContentState extends State<_ConnectionContent> {
                   nameController: _nameController,
                   hostController: _hostController,
                   userController: _userController,
-                  isRunning: isRunning,
+                  isRunning: isRunning || isTesting,
                   testSucceeded: _lastTestSucceeded,
                   hostError: _hostError,
                   userError: _userError,
@@ -185,7 +186,7 @@ class _ConnectionContentState extends State<_ConnectionContent> {
                     nameController: _nameController,
                     hostController: _hostController,
                     userController: _userController,
-                    isRunning: isRunning,
+                    isRunning: isRunning || isTesting,
                     testSucceeded: _lastTestSucceeded,
                     hostError: _hostError,
                     userError: _userError,
@@ -211,8 +212,7 @@ class _ConnectionContentState extends State<_ConnectionContent> {
       return;
     }
     setState(() => _lastTestSucceeded = null);
-    connection.requestConnect(host, user: user);
-    final succeeded = true;
+    final succeeded = await connection.testConnection(host, user: user);
     if (!mounted) {
       return;
     }
@@ -400,7 +400,7 @@ class _ConnectionContentState extends State<_ConnectionContent> {
     final quotedKey = shellQuote(publicKey ?? '');
     return '''
 set -u
-echo "== ssh-depot SSH 连接排查 =="
+echo "== SSH 连接排查 =="
 echo "[提示] 请在应用里填写的同一个 SSH 用户下执行本命令。"
 echo "[提示] 本命令排查目标机账户、公钥和 sshd 配置；网络、端口、防火墙仍需在本机用 ssh -vvv 排查。"
 echo
@@ -1129,7 +1129,7 @@ class _TerminalOutputBoxState extends State<_TerminalOutputBox> {
   Future<void> _copyForAi(BuildContext context) async {
     final block = _lastCommandBlock(widget.text);
     final content = '''
-请分析下面这次 ssh-depot 终端命令和输出，定位问题原因并给出修复建议：
+请分析下面这次 SSH 终端命令和输出，定位问题原因并给出修复建议：
 
 ```text
 $block

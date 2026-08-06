@@ -22,7 +22,6 @@ class ConnectedSession extends StatefulWidget {
 }
 
 class _ConnectedSessionState extends State<ConnectedSession> {
-  late final TerminalCubit _terminalCubit;
   late final OperationHistoryCubit _operationHistoryCubit;
   late final CommandRunnerCubit _commandRunnerCubit;
   bool _connecting = true;
@@ -30,10 +29,9 @@ class _ConnectedSessionState extends State<ConnectedSession> {
   @override
   void initState() {
     super.initState();
-    _terminalCubit = TerminalCubit();
     _operationHistoryCubit = OperationHistoryCubit();
     _commandRunnerCubit = CommandRunnerCubit(
-      terminalCubit: _terminalCubit,
+      terminalCubit: context.read<TerminalCubit>(),
       historyCubit: _operationHistoryCubit,
       currentTarget: () => widget.target,
     );
@@ -65,7 +63,6 @@ class _ConnectedSessionState extends State<ConnectedSession> {
   @override
   void dispose() {
     _commandRunnerCubit.closeMaster(widget.target, appendOutput: false);
-    _terminalCubit.dispose();
     _operationHistoryCubit.dispose();
     _commandRunnerCubit.dispose();
     super.dispose();
@@ -75,7 +72,6 @@ class _ConnectedSessionState extends State<ConnectedSession> {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ListenableProvider<TerminalCubit>.value(value: _terminalCubit),
         ListenableProvider<OperationHistoryCubit>.value(value: _operationHistoryCubit),
         ListenableProvider<CommandRunnerCubit>.value(value: _commandRunnerCubit),
         Provider<SshTarget>.value(value: widget.target),

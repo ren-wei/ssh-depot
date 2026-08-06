@@ -26,7 +26,11 @@ class TerminalCubit extends ChangeNotifier {
   }
 
   void appendOutput(ProcessOutputChunk chunk) {
-    append(_sanitizer.sanitize(chunk.text), rawText: chunk.rawText);
+    var visibleText = _sanitizer.sanitize(chunk.text);
+    if (visibleText.isEmpty && chunk.rawText != chunk.text) {
+      visibleText = _sanitizer.sanitize(chunk.rawText);
+    }
+    append(visibleText, rawText: chunk.rawText);
   }
 
   void clear() {

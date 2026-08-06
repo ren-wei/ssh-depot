@@ -43,7 +43,7 @@ void main() {
     expect(result?.succeeded, isTrue);
     expect(result?.output, 'done\n');
     expect(executor.commands, ["echo 'ok'"]);
-    expect(terminal.output, contains("echo 'ok'"));
+    expect(terminal.output, isNot(contains("echo 'ok'")));
     expect(terminal.output, contains('done'));
     expect(history.records.single.summary, 'Echo');
     expect(cubit.statusLine, '✓ Echo 成功');

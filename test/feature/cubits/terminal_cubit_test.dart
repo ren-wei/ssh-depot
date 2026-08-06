@@ -13,6 +13,19 @@ void main() {
     expect(cubit.lastVisibleLine, 'ok');
   });
 
+  test('uses raw output when the visible chunk is empty', () {
+    final cubit = TerminalCubit();
+
+    cubit.appendOutput(const ProcessOutputChunk(
+      text: '',
+      rawText: 'permission denied\n',
+      isStdErr: true,
+    ));
+
+    expect(cubit.output, 'permission denied\n');
+    expect(cubit.terminalRawText, 'permission denied\n');
+  });
+
   test('toggles expands and clears output', () {
     final cubit = TerminalCubit()..append('text');
 

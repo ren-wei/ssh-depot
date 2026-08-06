@@ -10,6 +10,8 @@ import 'shell_session.dart';
 import 'ssh_target.dart';
 
 class PtySshSession implements ShellSession {
+  static const hostKeyPromptExitCode = -2;
+
   PseudoTerminal? _pty;
   StreamSubscription<String>? _outputSubscription;
   SshTarget? _target;
@@ -18,6 +20,11 @@ class PtySshSession implements ShellSession {
   final TerminalControlSanitizer _sanitizer = TerminalControlSanitizer();
   String _pendingOutput = '';
   String _pendingRawOutput = '';
+  String _openDetectionOutput = '';
+  Completer<int>? _openFailureCompleter;
+  PseudoTerminal? _pendingOpenCommandPty;
+  String? _pendingOpenCommand;
+  Timer? _pendingOpenCommandTimer;
   bool _isCapturingCommandOutput = false;
   bool _lastCommandRawEndedWithNewline = true;
 
@@ -43,14 +50,8 @@ class PtySshSession implements ShellSession {
 
     try {
       final pty = PseudoTerminal.start(
-        'ssh',
-        [
-          '-o',
-          'BatchMode=yes',
-          '-o',
-          'ConnectTimeout=10',
-          target.address,
-        ],
+        'bash',
+        const ['-il'],
         environment: {
           ...Platform.environment,
           'TERM': Platform.environment['TERM'] ?? 'xterm-256color',
@@ -63,8 +64,20 @@ class PtySshSession implements ShellSession {
       _idleOutput = onOutput;
       _pendingOutput = '';
       _pendingRawOutput = '';
+      _openDetectionOutput = '';
+      _openFailureCompleter = Completer<int>();
+      _pendingOpenCommandPty = pty;
+      _pendingOpenCommand = _sshOpenCommand(target);
       _isCapturingCommandOutput = false;
       _lastCommandRawEndedWithNewline = true;
+      var outputDone = false;
+      var processExited = false;
+      void clearIfFinished() {
+        if (outputDone && processExited && identical(_pty, pty)) {
+          _clearSessionState(keepPty: false);
+        }
+      }
+
       _outputSubscription = pty.out.listen(_handleOutput, onError: (Object error) {
         final running = _runningCommand;
         final chunk = ProcessOutputChunk(text: '$error\n', isStdErr: true);
@@ -74,6 +87,9 @@ class PtySshSession implements ShellSession {
         } else {
           onOutput(chunk);
         }
+      }, onDone: () {
+        outputDone = true;
+        clearIfFinished();
       });
       unawaited(pty.exitCode.then((exitCode) {
         if (!identical(_pty, pty)) {
@@ -81,21 +97,30 @@ class PtySshSession implements ShellSession {
         }
         final running = _runningCommand;
         final effectiveExitCode = exitCode == 0 ? -1 : exitCode;
-        if (running != null && !running.completer.isCompleted) {
-          running.onOutput(ProcessOutputChunk(text: '\nSSH 会话已退出: $exitCode\n', isStdErr: true));
-          running.completer.complete(effectiveExitCode);
-        } else if (exitCode != 0) {
-          _idleOutput?.call(ProcessOutputChunk(text: '\nSSH 会话已退出: $exitCode\n', isStdErr: true));
+        final openFailure = _openFailureCompleter;
+        if (openFailure != null && !openFailure.isCompleted) {
+          openFailure.complete(effectiveExitCode);
         }
-        _clearSessionState(keepPty: false);
+        if (running != null && !running.completer.isCompleted) {
+          running.completer.complete(effectiveExitCode);
+        }
+        processExited = true;
+        clearIfFinished();
       }));
+
+      _pendingOpenCommandTimer = Timer(const Duration(milliseconds: 300), () {
+        _writePendingOpenCommand(reason: 'fallback timer');
+      });
 
       if (timeout == null) {
         return 0;
       }
-      return await Future<int>.delayed(const Duration(milliseconds: 250), () {
-        return _pty == null ? -1 : 0;
-      }).timeout(timeout, onTimeout: () {
+      return await Future.any<int>([
+        _openFailureCompleter!.future,
+        Future<int>.delayed(const Duration(milliseconds: 800), () {
+          return _pty == null ? -1 : 0;
+        }),
+      ]).timeout(timeout, onTimeout: () {
         close();
         return -1;
       });
@@ -131,6 +156,7 @@ class PtySshSession implements ShellSession {
     _runningCommand = running;
     _pendingOutput = '';
     _pendingRawOutput = '';
+    _openDetectionOutput = '';
     _isCapturingCommandOutput = false;
     _lastCommandRawEndedWithNewline = true;
 
@@ -174,6 +200,11 @@ class PtySshSession implements ShellSession {
     _idleOutput = null;
     _pendingOutput = '';
     _pendingRawOutput = '';
+    _openFailureCompleter = null;
+    _pendingOpenCommandPty = null;
+    _pendingOpenCommand = null;
+    _pendingOpenCommandTimer?.cancel();
+    _pendingOpenCommandTimer = null;
     _isCapturingCommandOutput = false;
     _lastCommandRawEndedWithNewline = true;
     final pty = _pty;
@@ -193,7 +224,15 @@ class PtySshSession implements ShellSession {
       return;
     }
     if (running == null) {
+      _openDetectionOutput += cleanData;
+      if (_openDetectionOutput.length > 4000) {
+        _openDetectionOutput = _openDetectionOutput.substring(_openDetectionOutput.length - 4000);
+      }
+      _completeOpenFailureIfNeeded(cleanData);
       _idleOutput?.call(ProcessOutputChunk(text: cleanData, rawText: data, isStdErr: false));
+      if (_looksReadyForInput(cleanData)) {
+        _writePendingOpenCommand(reason: 'prompt detected');
+      }
       return;
     }
 
@@ -291,6 +330,68 @@ class PtySshSession implements ShellSession {
         'printf "\\n$end:%s\\n" "\$__ssh_depot_exit"\n';
   }
 
+  String _sshOpenCommand(SshTarget target) {
+    return 'ssh -o BatchMode=yes ${_shellQuote(target.address)}\n';
+  }
+
+  String _shellQuote(String value) {
+    return "'${value.replaceAll("'", r"""'\''""")}'";
+  }
+
+  void _completeOpenFailureIfNeeded(String output) {
+    final openFailure = _openFailureCompleter;
+    if (openFailure == null || openFailure.isCompleted) {
+      return;
+    }
+    if (_looksLikeHostKeyPrompt(_openDetectionOutput)) {
+      openFailure.complete(hostKeyPromptExitCode);
+      return;
+    }
+    if (!_looksLikeSshOpenFailure(output)) {
+      return;
+    }
+    openFailure.complete(255);
+  }
+
+  bool _looksLikeSshOpenFailure(String output) {
+    return output.contains('Host key verification failed') ||
+        output.contains('Permission denied') ||
+        output.contains('Connection refused') ||
+        output.contains('Connection timed out') ||
+        output.contains('Operation timed out') ||
+        output.contains('No route to host') ||
+        output.contains('Could not resolve hostname') ||
+        output.contains('REMOTE HOST IDENTIFICATION HAS CHANGED') ||
+        output.contains('kex_exchange_identification') ||
+        output.contains('Connection closed by') ||
+        output.contains('Connection reset by');
+  }
+
+  bool _looksLikeHostKeyPrompt(String output) {
+    return output.contains('The authenticity of host') ||
+        output.contains('ED25519 key fingerprint is') ||
+        output.contains('Are you sure you want to continue connecting');
+  }
+
+  bool _looksReadyForInput(String output) {
+    final trimmed = output.trimRight();
+    return trimmed.endsWith(r'$') || trimmed.endsWith('#') || trimmed.endsWith('>') || trimmed.contains(r'$ ');
+  }
+
+  void _writePendingOpenCommand({required String reason}) {
+    final pty = _pendingOpenCommandPty;
+    final command = _pendingOpenCommand;
+    if (pty == null || command == null || !identical(_pty, pty)) {
+      return;
+    }
+    _pendingOpenCommandPty = null;
+    _pendingOpenCommand = null;
+    _pendingOpenCommandTimer?.cancel();
+    _pendingOpenCommandTimer = null;
+    _idleOutput?.call(ProcessOutputChunk(text: command, rawText: command, isStdErr: false));
+    pty.write(command);
+  }
+
   String _markerId() {
     final random = Random.secure().nextInt(0x7fffffff).toRadixString(16);
     return '${DateTime.now().microsecondsSinceEpoch.toRadixString(16)}_$random';
@@ -308,6 +409,12 @@ class PtySshSession implements ShellSession {
     _idleOutput = null;
     _pendingOutput = '';
     _pendingRawOutput = '';
+    _openDetectionOutput = '';
+    _openFailureCompleter = null;
+    _pendingOpenCommandPty = null;
+    _pendingOpenCommand = null;
+    _pendingOpenCommandTimer?.cancel();
+    _pendingOpenCommandTimer = null;
     _isCapturingCommandOutput = false;
     _lastCommandRawEndedWithNewline = true;
     if (!keepPty) {
