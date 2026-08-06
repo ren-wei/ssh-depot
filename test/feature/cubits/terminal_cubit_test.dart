@@ -9,7 +9,7 @@ void main() {
     cubit.appendOutput(const ProcessOutputChunk(text: '\x1B[32mok\x1B[0m\n', rawText: 'raw\n', isStdErr: false));
 
     expect(cubit.output, 'ok\n');
-    expect(cubit.rawOutput, 'raw\n');
+    expect(cubit.rawOutput, 'raw\r\n');
     expect(cubit.lastVisibleLine, 'ok');
   });
 
@@ -23,7 +23,15 @@ void main() {
     ));
 
     expect(cubit.output, 'permission denied\n');
-    expect(cubit.terminalRawText, 'permission denied\n');
+    expect(cubit.terminalRawText, 'permission denied\r\n');
+  });
+
+  test('normalizes raw line feeds for xterm rendering', () {
+    final cubit = TerminalCubit();
+
+    cubit.append('first\nsecond\r\nthird');
+
+    expect(cubit.terminalRawText, 'first\r\nsecond\r\nthird');
   });
 
   test('toggles expands and clears output', () {

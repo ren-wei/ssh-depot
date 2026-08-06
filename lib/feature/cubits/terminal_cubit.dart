@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:ssh_depot/core/process/process_output_chunk.dart';
 import 'package:ssh_depot/core/terminal/terminal_control_sanitizer.dart';
+import 'package:ssh_depot/core/terminal/terminal_raw_output.dart';
 
 class TerminalCubit extends ChangeNotifier {
   final _sanitizer = TerminalControlSanitizer();
@@ -21,7 +22,7 @@ class TerminalCubit extends ChangeNotifier {
   void append(String text, {String? rawText}) {
     _buffer.write(text);
     output = _buffer.toString();
-    rawOutput += rawText ?? text;
+    rawOutput += TerminalRawOutput.normalizeForXterm(rawText ?? text);
     notifyListeners();
   }
 

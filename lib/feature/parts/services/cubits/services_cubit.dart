@@ -115,6 +115,12 @@ class ServicesCubit extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> refreshManagedServiceStatuses() async {
+    for (final service in managedServices) {
+      await refreshServiceStatus(service);
+    }
+  }
+
   Future<void> serviceAction(String service, String action) async {
     final serviceUnit = serviceUnitName(service);
     if (!isSafeServiceName(serviceUnit)) {

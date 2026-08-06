@@ -530,8 +530,10 @@ class _TerminalPanel extends StatefulWidget {
 class _TerminalPanelState extends State<_TerminalPanel> {
   final _terminal = Terminal(maxLines: 10000);
   final _terminalController = TerminalController();
+  final _terminalViewKey = GlobalKey<TerminalViewState>();
   TerminalCubit? _terminalCubit;
   int _writtenLength = 0;
+  bool _syncScheduled = false;
 
   @override
   void initState() {
@@ -548,7 +550,7 @@ class _TerminalPanelState extends State<_TerminalPanel> {
     _terminalCubit?.removeListener(_scrollToBottom);
     _terminalCubit = nextTerminalCubit;
     nextTerminalCubit.addListener(_scrollToBottom);
-    _syncTerminal(nextTerminalCubit.terminalRawText);
+    _scheduleTerminalSync();
   }
 
   @override
@@ -559,9 +561,25 @@ class _TerminalPanelState extends State<_TerminalPanel> {
   }
 
   void _scrollToBottom() {
+    _scheduleTerminalSync();
+  }
+
+  void _scheduleTerminalSync() {
+    if (_syncScheduled) {
+      return;
+    }
+    _syncScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncScheduled = false;
+      if (!mounted) {
+        return;
+      }
       final terminalCubit = _terminalCubit;
       if (terminalCubit == null) {
+        return;
+      }
+      if (terminalCubit.terminalRawText.isNotEmpty && _terminalViewKey.currentState == null) {
+        _scheduleTerminalSync();
         return;
       }
       _syncTerminal(terminalCubit.terminalRawText);
@@ -629,6 +647,7 @@ class _TerminalPanelState extends State<_TerminalPanel> {
                     ),
                   )
                 : TerminalView(
+                    key: _terminalViewKey,
                     _terminal,
                     controller: _terminalController,
                     theme: _depotTerminalTheme,

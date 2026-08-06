@@ -30,6 +30,34 @@ void main() {
     expect(cubit.managedServices, ['docker.service']);
   });
 
+  test('refreshes all managed service statuses after loading target', () async {
+    final tempDir = await Directory.systemTemp.createTemp('ssh_depot_services_');
+    addTearDown(() => tempDir.delete(recursive: true));
+    final store = ServicePreferencesStore(paths: ConfigPaths(homeDirectory: tempDir.path));
+    await store.save('root@one.example.com', const ['nginx.service', 'docker.service']);
+    final runner = FakeRemoteCommandRunner()
+      ..responses['获取 nginx 状态'] = const RemoteCommandResult(
+        exitCode: 0,
+        output: 'service=nginx.service;status=active;enabled=enabled\n',
+      )
+      ..responses['获取 docker 状态'] = const RemoteCommandResult(
+        exitCode: 0,
+        output: 'service=docker.service;status=inactive;enabled=disabled\n',
+      );
+    final cubit = ServicesCubit(
+      commandRunner: runner,
+      currentTarget: () => const SshTarget(host: 'one.example.com'),
+      servicePreferencesStore: store,
+    );
+
+    await cubit.loadForTarget(const SshTarget(host: 'one.example.com'));
+    await cubit.refreshManagedServiceStatuses();
+
+    expect(cubit.serviceSnapshots['nginx.service']?.status, ServiceStatus.active);
+    expect(cubit.serviceSnapshots['docker.service']?.enabled, isFalse);
+    expect(runner.commands.where((command) => command.contains('systemctl is-active')), hasLength(2));
+  });
+
   test('stop action refreshes status and logs', () async {
     final runner = FakeRemoteCommandRunner()
       ..responses['docker stop'] = const RemoteCommandResult(exitCode: 0, output: '')

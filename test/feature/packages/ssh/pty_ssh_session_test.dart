@@ -49,4 +49,8 @@ void main() {
     expect(output.substring(range!.start, range.end), expectedMarker);
     expect(output.substring(0, range.start), contains('printf'));
   });
+
+  test('starts local bash without loading user profile files', () {
+    expect(PtySshSession.bashArgumentsForTesting, ['--noprofile', '--norc', '-i']);
+  });
 }

@@ -51,9 +51,11 @@ class PtySshSession implements ShellSession {
     try {
       final pty = PseudoTerminal.start(
         'bash',
-        const ['-il'],
+        bashArgumentsForTesting,
         environment: {
           ...Platform.environment,
+          'BASH_SILENCE_DEPRECATION_WARNING': '1',
+          'PS1': r'\u@\h:\w\$ ',
           'TERM': Platform.environment['TERM'] ?? 'xterm-256color',
         },
         raw: true,
@@ -506,6 +508,8 @@ class PtySshSession implements ShellSession {
   static bool _endsWithNewline(String value) {
     return value.endsWith('\n') || value.endsWith('\r');
   }
+
+  static const bashArgumentsForTesting = ['--noprofile', '--norc', '-i'];
 }
 
 class MarkerRange {

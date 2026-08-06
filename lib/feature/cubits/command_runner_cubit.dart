@@ -182,6 +182,7 @@ class CommandRunnerCubit extends ChangeNotifier implements RemoteCommandRunner {
   }) {
     return _queue.run(() async {
       isRunning = true;
+      _appendCommandInput(command);
       _setStatus(summary);
 
       int exitCode;
@@ -204,6 +205,14 @@ class CommandRunnerCubit extends ChangeNotifier implements RemoteCommandRunner {
       _setStatus(exitCode == 0 ? '✓ $summary 成功' : '✗ $summary 失败');
       return exitCode;
     });
+  }
+
+  void _appendCommandInput(String command) {
+    final cleanCommand = command.trimRight();
+    if (cleanCommand.isEmpty) {
+      return;
+    }
+    _terminalCubit.append('\n\$ $cleanCommand\n');
   }
 
   void cancelRunning() {

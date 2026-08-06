@@ -43,8 +43,9 @@ void main() {
     expect(result?.succeeded, isTrue);
     expect(result?.output, 'done\n');
     expect(executor.commands, ["echo 'ok'"]);
-    expect(terminal.output, isNot(contains("echo 'ok'")));
+    expect(terminal.output, contains("\$ echo 'ok'"));
     expect(terminal.output, contains('done'));
+    expect(terminal.terminalRawText, contains("\$ echo 'ok'\r\n"));
     expect(history.records.single.summary, 'Echo');
     expect(cubit.statusLine, '✓ Echo 成功');
     expect(cubit.isRunning, isFalse);

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 import 'package:ssh_depot/feature/cubits/command_runner_cubit.dart';
@@ -23,7 +25,15 @@ class _ServicesPageState extends State<ServicesPage> {
       commandRunner: context.read<CommandRunnerCubit>(),
       currentTarget: () => target,
     );
-    _servicesCubit.loadForTarget(target);
+    unawaited(_loadAndRefresh(target));
+  }
+
+  Future<void> _loadAndRefresh(SshTarget target) async {
+    await _servicesCubit.loadForTarget(target);
+    if (!mounted) {
+      return;
+    }
+    await _servicesCubit.refreshManagedServiceStatuses();
   }
 
   @override
