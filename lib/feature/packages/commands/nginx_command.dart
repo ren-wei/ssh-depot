@@ -1,6 +1,6 @@
 import 'package:ssh_depot/feature/packages/commands/command.dart';
 
-class NginxCommand implements Command {
+class NginxCommand extends Command {
   const NginxCommand._({
     required this.summary,
     required this.text,

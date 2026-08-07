@@ -3,9 +3,7 @@ import 'package:ssh_depot/feature/classes/nginx_site.dart';
 import 'package:ssh_depot/feature/classes/remote_command_result.dart';
 import 'package:ssh_depot/feature/packages/command_runner/command_runner.dart';
 import 'package:ssh_depot/feature/packages/certificates/certificate_utils.dart';
-import 'package:ssh_depot/feature/packages/commands/command.dart';
 import 'package:ssh_depot/feature/parts/ssl/commands/ssl_commands.dart';
-import 'package:ssh_depot/feature/parts/ssl/parsers/ssl_parsers.dart';
 
 class SslCubit extends ChangeNotifier {
   SslCubit({required CommandRunner commandRunner}) : _commandRunner = commandRunner;
@@ -15,18 +13,15 @@ class SslCubit extends ChangeNotifier {
   List<NginxCertificateInfo> nginxCertificates = const [];
 
   Future<void> refreshCertificates() async {
-    final result = await _commandRunner.runCaptureCommand(
-      command: CommandWithSummary(
-        command: certificateListCommand(),
-        summary: '刷新证书列表',
-      ),
+    final certificates = await _commandRunner.runCaptureCommand(
+      command: certificateListCommand(),
       timeout: const Duration(seconds: 20),
     );
-    if (result == null || !result.succeeded) {
+    if (certificates == null) {
       return;
     }
 
-    nginxCertificates = parseCertificates(result.output);
+    nginxCertificates = certificates;
     notifyListeners();
   }
 
@@ -37,10 +32,7 @@ class SslCubit extends ChangeNotifier {
       return Future.value();
     }
     return _commandRunner.runCaptureCommand(
-      command: CommandWithSummary(
-        command: certificateDetailsCommand(cleanCertName),
-        summary: '查看证书 $cleanCertName',
-      ),
+      command: certificateDetailsCommand(cleanCertName),
       timeout: const Duration(seconds: 12),
     );
   }
@@ -72,14 +64,11 @@ class SslCubit extends ChangeNotifier {
       return null;
     }
     final result = await _commandRunner.runCaptureCommand(
-      command: CommandWithSummary(
-        command: requestCertificateCommand(
-          domains: domains,
-          email: email,
-          useWebroot: useWebroot,
-          webroot: webroot,
-        ),
-        summary: '申请证书 ${domains.first}',
+      command: requestCertificateCommand(
+        domains: domains,
+        email: email,
+        useWebroot: useWebroot,
+        webroot: webroot,
       ),
       timeout: const Duration(minutes: 5),
     );
@@ -94,10 +83,7 @@ class SslCubit extends ChangeNotifier {
       return null;
     }
     final result = await _commandRunner.runCaptureCommand(
-      command: CommandWithSummary(
-        command: renewCertificateCommand(cleanCertName, dryRun: dryRun),
-        summary: dryRun ? '测试续期证书 $cleanCertName' : '续期证书 $cleanCertName',
-      ),
+      command: renewCertificateCommand(cleanCertName, dryRun: dryRun),
       timeout: const Duration(minutes: 5),
     );
     await refreshCertificates();
@@ -127,14 +113,11 @@ class SslCubit extends ChangeNotifier {
       return null;
     }
     final result = await _commandRunner.runCaptureCommand(
-      command: CommandWithSummary(
-        command: updateCertificateDomainsCommand(
-          certName: cleanCertName,
-          domains: cleanDomains,
-          useWebroot: useWebroot,
-          webroot: webroot,
-        ),
-        summary: '更新证书域名 $cleanCertName',
+      command: updateCertificateDomainsCommand(
+        certName: cleanCertName,
+        domains: cleanDomains,
+        useWebroot: useWebroot,
+        webroot: webroot,
       ),
       timeout: const Duration(minutes: 5),
     );
@@ -149,10 +132,7 @@ class SslCubit extends ChangeNotifier {
       return null;
     }
     final result = await _commandRunner.runCaptureCommand(
-      command: CommandWithSummary(
-        command: deleteCertificateCommand(cleanCertName),
-        summary: '删除证书 $cleanCertName',
-      ),
+      command: deleteCertificateCommand(cleanCertName),
       timeout: const Duration(minutes: 2),
     );
     await refreshCertificates();

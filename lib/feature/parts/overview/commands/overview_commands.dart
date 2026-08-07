@@ -1,11 +1,14 @@
+import 'package:ssh_depot/feature/classes/overview_snapshot.dart';
+import 'package:ssh_depot/feature/classes/remote_command_result.dart';
 import 'package:ssh_depot/feature/packages/commands/command.dart';
+import 'package:ssh_depot/feature/parts/overview/parsers/overview_parser.dart';
 import 'package:ssh_depot/feature/utils/shell_quote.dart';
 
 Command overviewCommandFor(List<String> services) {
   return OverviewSnapshotCommand(services);
 }
 
-class OverviewSnapshotCommand implements Command {
+class OverviewSnapshotCommand extends Command {
   const OverviewSnapshotCommand(this.services);
 
   final List<String> services;
@@ -24,6 +27,14 @@ for svc in $quotedServices; do
   printf "service=%s;status=%s;enabled=%s\\n" "\$svc" "\${status:-unknown}" "\${enabled:-unknown}"
 done
 ''';
+  }
+
+  @override
+  OverviewSnapshot? parse(RemoteCommandResult result) {
+    if (!result.succeeded) {
+      return null;
+    }
+    return const OverviewParser().parse(result.output);
   }
 }
 

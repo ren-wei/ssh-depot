@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:ssh_depot/feature/packages/command_runner/command_runner.dart';
-import 'package:ssh_depot/feature/packages/commands/command.dart';
 import 'package:ssh_depot/feature/parts/packages/commands/package_commands.dart';
 
 class PackagesCubit extends ChangeNotifier {
@@ -15,10 +14,7 @@ class PackagesCubit extends ChangeNotifier {
       return Future.value();
     }
     return _commandRunner.runCommand(
-      command: CommandWithSummary(
-        command: installPackageCommand(name),
-        summary: '安装 $name',
-      ),
+      command: installPackageCommand(name),
       timeout: const Duration(minutes: 20),
     );
   }
@@ -30,10 +26,7 @@ class PackagesCubit extends ChangeNotifier {
       return Future.value();
     }
     return _commandRunner.runCommand(
-      command: CommandWithSummary(
-        command: removePackageCommand(name),
-        summary: '卸载 $name',
-      ),
+      command: removePackageCommand(name),
       timeout: const Duration(minutes: 10),
     );
   }

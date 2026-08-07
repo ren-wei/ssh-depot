@@ -1,4 +1,3 @@
-import 'package:ssh_depot/feature/classes/remote_command_result.dart';
 import 'package:ssh_depot/feature/packages/commands/command.dart';
 import 'package:ssh_depot/feature/packages/ssh/ssh_target.dart';
 
@@ -11,7 +10,7 @@ abstract interface class CommandRunner {
     Duration? timeout,
   });
 
-  Future<RemoteCommandResult?> runCaptureCommand({
+  Future<T?> runCaptureCommand<T>({
     required Command command,
     Duration? timeout,
   });

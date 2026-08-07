@@ -1,7 +1,7 @@
 import 'package:ssh_depot/feature/packages/commands/command.dart';
 import 'package:ssh_depot/feature/utils/shell_quote.dart';
 
-class EchoCommand implements Command {
+class EchoCommand extends Command {
   const EchoCommand(
     this.value, {
     this.summary = 'Echo',

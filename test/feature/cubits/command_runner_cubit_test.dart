@@ -3,6 +3,7 @@ import 'package:ssh_depot/core/process/process_output_chunk.dart';
 import 'package:ssh_depot/feature/cubits/command_runner_cubit.dart';
 import 'package:ssh_depot/feature/cubits/operation_history_cubit.dart';
 import 'package:ssh_depot/feature/cubits/terminal_cubit.dart';
+import 'package:ssh_depot/feature/packages/commands/command.dart';
 import 'package:ssh_depot/feature/packages/commands/echo_command.dart';
 import 'package:ssh_depot/feature/packages/ssh/shell_session.dart';
 import 'package:ssh_depot/feature/packages/ssh/ssh_command.dart';
@@ -20,7 +21,13 @@ void main() {
     );
 
     await cubit.runCommand(command: const EchoCommand('ok'));
-    final result = await cubit.runCaptureCommand(command: const EchoCommand('ok'));
+    final result = await cubit.runCaptureCommand(
+      command: CommandSequence(
+        summary: 'Echo',
+        commands: const [EchoCommand('ok')],
+        parser: (result) => result,
+      ),
+    );
 
     expect(result, isNull);
     expect(executor.commands, isEmpty);
@@ -38,7 +45,13 @@ void main() {
       sshExecutor: executor,
     );
 
-    final result = await cubit.runCaptureCommand(command: const EchoCommand('ok'));
+    final result = await cubit.runCaptureCommand(
+      command: CommandSequence(
+        summary: 'Echo',
+        commands: const [EchoCommand('ok')],
+        parser: (result) => result,
+      ),
+    );
 
     expect(result?.succeeded, isTrue);
     expect(result?.output, 'done\n');

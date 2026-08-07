@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:ssh_depot/feature/classes/remote_command_result.dart';
 import 'package:ssh_depot/feature/packages/certificates/certificate_commands.dart';
 import 'package:ssh_depot/feature/packages/commands/command.dart';
 import 'package:ssh_depot/feature/packages/commands/echo_command.dart';
@@ -8,6 +9,7 @@ import 'package:ssh_depot/feature/packages/commands/ln_command.dart';
 import 'package:ssh_depot/feature/packages/commands/nginx_command.dart';
 import 'package:ssh_depot/feature/packages/commands/rm_command.dart';
 import 'package:ssh_depot/feature/packages/commands/systemctl_command.dart';
+import 'package:ssh_depot/feature/parts/nginx/parsers/nginx_sites_parser.dart';
 import 'package:ssh_depot/feature/utils/shell_quote.dart';
 
 Command refreshNginxSitesCommand() {
@@ -23,12 +25,18 @@ Command refreshNginxSitesCommand() {
       const NginxSiteDomainsCommand(),
       certificateListCommand(),
     ],
+    parser: (result) {
+      if (!result.succeeded) {
+        return null;
+      }
+      return parseNginxSites(result.output);
+    },
   );
 }
 
 Command enableNginxSiteCommand(String site) {
   return CommandSequence(
-    summary: '启用网站',
+    summary: '启用网站 $site',
     commands: [
       LnCommand.symbolic(
         source: '/etc/nginx/sites-available/$site',
@@ -42,7 +50,7 @@ Command enableNginxSiteCommand(String site) {
 
 Command disableNginxSiteCommand(String site) {
   return CommandSequence(
-    summary: '停用网站',
+    summary: '禁用网站 $site',
     commands: [
       RmCommand.files(['/etc/nginx/sites-enabled/$site']),
       NginxCommand.test(),
@@ -58,6 +66,7 @@ Command writeNginxSiteCommand({required String siteName, required String config}
     siteName: siteName,
     targetFile: targetFile,
     encodedConfig: encoded,
+    summary: '写入网站配置 $siteName',
   );
 }
 
@@ -77,7 +86,7 @@ Command saveNginxSiteConfigCommand({required String siteName, required String co
 
 Command deleteNginxSiteCommand(String site) {
   return CommandSequence(
-    summary: '删除网站',
+    summary: '删除网站 $site',
     commands: [
       RmCommand.files(['/etc/nginx/sites-enabled/$site', '/etc/nginx/sites-available/$site']),
       NginxCommand.test(),
@@ -86,7 +95,7 @@ Command deleteNginxSiteCommand(String site) {
   );
 }
 
-class NginxSiteDomainsCommand implements Command {
+class NginxSiteDomainsCommand extends Command {
   const NginxSiteDomainsCommand();
 
   @override
@@ -104,11 +113,12 @@ class NginxSiteDomainsCommand implements Command {
   }
 }
 
-class WriteNginxSiteCommand implements Command {
+class WriteNginxSiteCommand extends Command {
   const WriteNginxSiteCommand({
     required this.siteName,
     required this.targetFile,
     required this.encodedConfig,
+    required this.summary,
   });
 
   final String siteName;
@@ -116,7 +126,7 @@ class WriteNginxSiteCommand implements Command {
   final String encodedConfig;
 
   @override
-  String get summary => '新增网站';
+  final String summary;
 
   @override
   String get text {
@@ -135,19 +145,27 @@ class WriteNginxSiteCommand implements Command {
   }
 }
 
-class ReadNginxSiteConfigCommand implements Command {
+class ReadNginxSiteConfigCommand extends Command {
   const ReadNginxSiteConfigCommand(this.site);
 
   final String site;
 
   @override
-  String get summary => '读取网站配置';
+  String get summary => '读取网站配置 $site';
 
   @override
   String get text => '${nginxSiteTargetPrefix(site)} cat "\$target"';
+
+  @override
+  String? parse(RemoteCommandResult result) {
+    if (!result.succeeded) {
+      return null;
+    }
+    return result.output;
+  }
 }
 
-class TestNginxSiteConfigCommand implements Command {
+class TestNginxSiteConfigCommand extends Command {
   const TestNginxSiteConfigCommand({
     required this.siteName,
     required this.encodedConfig,
@@ -157,7 +175,7 @@ class TestNginxSiteConfigCommand implements Command {
   final String encodedConfig;
 
   @override
-  String get summary => '网站语法检查';
+  String get summary => '检查网站配置 $siteName';
 
   @override
   String get text {
@@ -170,9 +188,12 @@ class TestNginxSiteConfigCommand implements Command {
         'printf %s ${shellQuote(encodedConfig)} | base64 -d > "\$target"; '
         'if ${NginxCommand.test().text}; then restore; exit 0; else code=\$?; restore; exit "\$code"; fi';
   }
+
+  @override
+  RemoteCommandResult parse(RemoteCommandResult result) => result;
 }
 
-class SaveNginxSiteConfigCommand implements Command {
+class SaveNginxSiteConfigCommand extends Command {
   const SaveNginxSiteConfigCommand({
     required this.siteName,
     required this.encodedConfig,
@@ -182,7 +203,7 @@ class SaveNginxSiteConfigCommand implements Command {
   final String encodedConfig;
 
   @override
-  String get summary => '保存网站配置';
+  String get summary => '保存网站配置 $siteName';
 
   @override
   String get text {
@@ -198,6 +219,9 @@ class SaveNginxSiteConfigCommand implements Command {
         'fi; '
         '${SystemctlCommand.reload('nginx').text}';
   }
+
+  @override
+  RemoteCommandResult parse(RemoteCommandResult result) => result;
 }
 
 String nginxSiteTargetPrefix(String site) {

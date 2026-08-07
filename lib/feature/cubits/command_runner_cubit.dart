@@ -97,7 +97,7 @@ class CommandRunnerCubit extends ChangeNotifier implements CommandRunner {
   }
 
   @override
-  Future<RemoteCommandResult?> runCaptureCommand({
+  Future<T?> runCaptureCommand<T>({
     required Command command,
     Duration? timeout,
   }) async {
@@ -115,7 +115,8 @@ class CommandRunnerCubit extends ChangeNotifier implements CommandRunner {
       timeout: timeout,
       onOutput: (chunk) => output.write(chunk.text),
     );
-    return RemoteCommandResult(exitCode: exitCode, output: output.toString());
+    final result = RemoteCommandResult(exitCode: exitCode, output: output.toString());
+    return command.parse(result) as T?;
   }
 
   @override

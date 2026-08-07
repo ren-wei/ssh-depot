@@ -1,12 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:ssh_depot/feature/classes/overview_snapshot.dart';
 import 'package:ssh_depot/feature/packages/command_runner/command_runner.dart';
-import 'package:ssh_depot/feature/packages/commands/command.dart';
 import 'package:ssh_depot/feature/packages/local_config/config_paths.dart';
 import 'package:ssh_depot/feature/packages/local_config/service_preferences_store.dart';
 import 'package:ssh_depot/feature/packages/ssh/ssh_target.dart';
 import 'package:ssh_depot/feature/parts/services/commands/service_commands.dart';
-import 'package:ssh_depot/feature/parts/services/parsers/service_parsers.dart';
 import 'package:ssh_depot/feature/utils/home_directory.dart';
 
 class ServicesCubit extends ChangeNotifier {
@@ -79,14 +77,11 @@ class ServicesCubit extends ChangeNotifier {
   }
 
   Future<List<String>> searchRemoteServices() async {
-    final result = await _commandRunner.runCaptureCommand(
+    final services = await _commandRunner.runCaptureCommand(
       command: searchServicesCommand(),
       timeout: const Duration(seconds: 20),
     );
-    if (result == null || !result.succeeded) {
-      return const [];
-    }
-    return parseSystemdServices(result.output);
+    return services ?? const [];
   }
 
   Future<void> refreshServiceStatus(String service) async {
@@ -96,18 +91,11 @@ class ServicesCubit extends ChangeNotifier {
       return;
     }
 
-    final result = await _commandRunner.runCaptureCommand(
-      command: CommandWithSummary(
-        command: serviceStatusCommand(serviceUnit),
-        summary: '获取 ${serviceDisplayName(serviceUnit)} 状态',
-      ),
+    final snapshot = await _commandRunner.runCaptureCommand(
+      command: serviceStatusCommand(serviceUnit),
       timeout: const Duration(seconds: 12),
     );
 
-    if (result == null || !result.succeeded) {
-      return;
-    }
-    final snapshot = parseServiceSnapshot(result.output);
     if (snapshot == null) {
       return;
     }
@@ -137,10 +125,7 @@ class ServicesCubit extends ChangeNotifier {
       return;
     }
     final result = await _commandRunner.runCaptureCommand(
-      command: CommandWithSummary(
-        command: command,
-        summary: '${serviceDisplayName(serviceUnit)} ${serviceActionSummary(action)}',
-      ),
+      command: command,
     );
     if (action == 'start' || action == 'stop' || action == 'restart') {
       if (result?.succeeded == true) {
@@ -168,10 +153,7 @@ class ServicesCubit extends ChangeNotifier {
     notifyListeners();
 
     final result = await _commandRunner.runCaptureCommand(
-      command: CommandWithSummary(
-        command: serviceLogsCommand(serviceUnit),
-        summary: '查看 ${serviceDisplayName(serviceUnit)} 日志',
-      ),
+      command: serviceLogsCommand(serviceUnit),
     );
 
     if (result == null) {

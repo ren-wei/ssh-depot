@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ssh_depot/feature/classes/remote_command_result.dart';
 import 'package:ssh_depot/feature/packages/commands/command.dart';
 import 'package:ssh_depot/feature/packages/commands/echo_command.dart';
 
@@ -25,13 +26,25 @@ void main() {
     expect(const CommandSequence(summary: '空', commands: []).text, '');
   });
 
-  test('CommandWithSummary replaces summary without changing text', () {
-    final command = CommandWithSummary(
-      summary: '自定义说明',
-      command: const EchoCommand('payload'),
+  test('CommandSequence capture parses combined output', () {
+    final command = CommandSequence(
+      summary: '解析组合',
+      operator: ';',
+      commands: const [EchoCommand('one'), EchoCommand('two')],
+      parser: (result) {
+        if (!result.succeeded) {
+          return null;
+        }
+        return result.output.trim().split('\n');
+      },
     );
 
-    expect(command.summary, '自定义说明');
-    expect(command.text, "echo 'payload'");
+    expect(command.summary, '解析组合');
+    expect(command.text, "echo 'one' ; echo 'two'");
+    expect(
+      command.parse(const RemoteCommandResult(exitCode: 0, output: 'one\ntwo\n')),
+      ['one', 'two'],
+    );
+    expect(command.parse(const RemoteCommandResult(exitCode: 1, output: 'bad')), isNull);
   });
 }

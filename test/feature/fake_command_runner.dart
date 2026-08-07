@@ -22,12 +22,13 @@ class FakeCommandRunner implements CommandRunner {
   }
 
   @override
-  Future<RemoteCommandResult?> runCaptureCommand({
+  Future<T?> runCaptureCommand<T>({
     required Command command,
     Duration? timeout,
   }) async {
     commands.add(command.text);
-    return responses[command.summary] ?? const RemoteCommandResult(exitCode: 0, output: '');
+    final result = responses[command.summary] ?? const RemoteCommandResult(exitCode: 0, output: '');
+    return command.parse(result) as T?;
   }
 
   @override

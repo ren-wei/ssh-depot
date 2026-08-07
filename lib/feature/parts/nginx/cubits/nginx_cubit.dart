@@ -3,12 +3,10 @@ import 'package:ssh_depot/feature/classes/nginx_site.dart';
 import 'package:ssh_depot/feature/classes/nginx_template_definition.dart';
 import 'package:ssh_depot/feature/classes/remote_command_result.dart';
 import 'package:ssh_depot/feature/packages/command_runner/command_runner.dart';
-import 'package:ssh_depot/feature/packages/commands/command.dart';
 import 'package:ssh_depot/feature/packages/commands/nginx_command.dart';
 import 'package:ssh_depot/feature/packages/commands/systemctl_command.dart';
 import 'package:ssh_depot/feature/packages/local_config/config_paths.dart';
 import 'package:ssh_depot/feature/parts/nginx/commands/nginx_site_commands.dart';
-import 'package:ssh_depot/feature/parts/nginx/parsers/nginx_sites_parser.dart';
 import 'package:ssh_depot/feature/parts/nginx/stores/nginx_templates_store.dart';
 import 'package:ssh_depot/feature/parts/nginx/templates/built_in_templates.dart';
 import 'package:ssh_depot/feature/parts/nginx/templates/nginx_site_templates.dart';
@@ -47,14 +45,13 @@ class NginxCubit extends ChangeNotifier {
   }
 
   Future<void> refreshNginxSites() async {
-    final result = await _commandRunner.runCaptureCommand(
+    final parsed = await _commandRunner.runCaptureCommand(
       command: refreshNginxSitesCommand(),
       timeout: const Duration(seconds: 20),
     );
-    if (result == null || !result.succeeded) {
+    if (parsed == null) {
       return;
     }
-    final parsed = parseNginxSites(result.output);
     nginxSites = parsed.sites;
     nginxCertificates = parsed.certificates;
     notifyListeners();
@@ -70,10 +67,7 @@ class NginxCubit extends ChangeNotifier {
       return;
     }
     await _commandRunner.runCommand(
-      command: CommandWithSummary(
-        command: enableNginxSiteCommand(site),
-        summary: '启用网站 $site',
-      ),
+      command: enableNginxSiteCommand(site),
     );
     await refreshNginxSites();
   }
@@ -84,10 +78,7 @@ class NginxCubit extends ChangeNotifier {
       return;
     }
     await _commandRunner.runCommand(
-      command: CommandWithSummary(
-        command: disableNginxSiteCommand(site),
-        summary: '禁用网站 $site',
-      ),
+      command: disableNginxSiteCommand(site),
     );
     await refreshNginxSites();
   }
@@ -115,10 +106,7 @@ class NginxCubit extends ChangeNotifier {
     }
 
     return _commandRunner.runCommand(
-      command: CommandWithSummary(
-        command: writeNginxSiteCommand(siteName: cleanSite, config: config),
-        summary: '写入网站配置 $cleanSite',
-      ),
+      command: writeNginxSiteCommand(siteName: cleanSite, config: config),
       timeout: const Duration(minutes: 2),
     );
   }
@@ -128,17 +116,11 @@ class NginxCubit extends ChangeNotifier {
       _commandRunner.setStatus('无效站点名');
       return null;
     }
-    final result = await _commandRunner.runCaptureCommand(
-      command: CommandWithSummary(
-        command: readNginxSiteConfigCommand(site),
-        summary: '读取网站配置 $site',
-      ),
+    final config = await _commandRunner.runCaptureCommand(
+      command: readNginxSiteConfigCommand(site),
       timeout: const Duration(seconds: 12),
     );
-    if (result == null || !result.succeeded) {
-      return null;
-    }
-    return result.output;
+    return config;
   }
 
   Future<RemoteCommandResult?> testNginxSiteConfig({
@@ -156,10 +138,7 @@ class NginxCubit extends ChangeNotifier {
     }
 
     return _commandRunner.runCaptureCommand(
-      command: CommandWithSummary(
-        command: testNginxSiteConfigCommand(siteName: cleanSite, config: config),
-        summary: '检查网站配置 $cleanSite',
-      ),
+      command: testNginxSiteConfigCommand(siteName: cleanSite, config: config),
       timeout: const Duration(minutes: 2),
     );
   }
@@ -179,10 +158,7 @@ class NginxCubit extends ChangeNotifier {
     }
 
     final result = await _commandRunner.runCaptureCommand(
-      command: CommandWithSummary(
-        command: saveNginxSiteConfigCommand(siteName: cleanSite, config: config),
-        summary: '保存网站配置 $cleanSite',
-      ),
+      command: saveNginxSiteConfigCommand(siteName: cleanSite, config: config),
       timeout: const Duration(minutes: 2),
     );
     await refreshNginxSites();
@@ -195,10 +171,7 @@ class NginxCubit extends ChangeNotifier {
       return;
     }
     await _commandRunner.runCommand(
-      command: CommandWithSummary(
-        command: deleteNginxSiteCommand(site),
-        summary: '删除网站 $site',
-      ),
+      command: deleteNginxSiteCommand(site),
       timeout: const Duration(minutes: 2),
     );
     await refreshNginxSites();

@@ -1,7 +1,7 @@
 import 'package:ssh_depot/feature/packages/commands/command.dart';
 import 'package:ssh_depot/feature/utils/shell_quote.dart';
 
-class JournalctlCommand implements Command {
+class JournalctlCommand extends Command {
   const JournalctlCommand._({
     required this.summary,
     required this.text,

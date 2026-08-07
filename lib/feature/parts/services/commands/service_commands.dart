@@ -1,8 +1,10 @@
 import 'package:ssh_depot/feature/classes/overview_snapshot.dart';
+import 'package:ssh_depot/feature/classes/remote_command_result.dart';
 import 'package:ssh_depot/feature/packages/commands/command.dart';
 import 'package:ssh_depot/feature/packages/commands/echo_command.dart';
 import 'package:ssh_depot/feature/packages/commands/journalctl_command.dart';
 import 'package:ssh_depot/feature/packages/commands/systemctl_command.dart';
+import 'package:ssh_depot/feature/parts/services/parsers/service_parsers.dart';
 
 bool isSafeServiceName(String value) {
   return RegExp(r'^[a-zA-Z0-9_.@:-]+$').hasMatch(value);
@@ -24,40 +26,53 @@ List<String> normalizeManagedServices(List<String> services) {
 }
 
 Command searchServicesCommand() {
-  return SystemctlCommand.listServices();
+  return CommandSequence(
+    summary: '搜索服务',
+    commands: [SystemctlCommand.listServices()],
+    parser: (result) {
+      if (!result.succeeded) {
+        return const [];
+      }
+      return parseSystemdServices(result.output);
+    },
+  );
 }
 
 Command serviceStatusCommand(String serviceUnit) {
-  return SystemctlCommand.serviceSnapshot(serviceUnit);
+  return CommandSequence(
+    summary: '获取 ${serviceDisplayName(serviceUnit)} 状态',
+    commands: [SystemctlCommand.serviceSnapshot(serviceUnit)],
+    parser: (result) {
+      if (!result.succeeded) {
+        return null;
+      }
+      return parseServiceSnapshot(result.output);
+    },
+  );
 }
 
 Command? serviceActionCommand(String serviceUnit, String action) {
-  return switch (action) {
-    'start' => CommandWithSummary(
-        command: SystemctlCommand.start(serviceUnit),
-        summary: serviceActionSummary(action),
-      ),
-    'stop' => CommandWithSummary(
-        command: SystemctlCommand.stop(serviceUnit),
-        summary: serviceActionSummary(action),
-      ),
-    'restart' => CommandWithSummary(
-        command: SystemctlCommand.restart(serviceUnit),
-        summary: serviceActionSummary(action),
-      ),
-    'status' => CommandWithSummary(
-        command: SystemctlCommand.status(serviceUnit),
-        summary: serviceActionSummary(action),
-      ),
-    _ => null,
-  };
+  final summary = '${serviceDisplayName(serviceUnit)} ${serviceActionSummary(action)}';
+  if (!const {'start', 'stop', 'restart', 'status'}.contains(action)) {
+    return null;
+  }
+  return SystemctlCommand.serviceAction(
+    unit: serviceUnit,
+    action: action,
+    summary: summary,
+  );
 }
 
 Command serviceLogsCommand(String serviceUnit) {
+  final summary = '查看 ${serviceDisplayName(serviceUnit)} 日志';
   if (serviceDisplayName(serviceUnit) != 'nginx') {
-    return JournalctlCommand.unit(serviceUnit);
+    return CommandSequence(
+      summary: summary,
+      commands: [JournalctlCommand.unit(serviceUnit)],
+      parser: (result) => result,
+    );
   }
-  return NginxServiceLogsCommand(serviceUnit);
+  return NginxServiceLogsCommand(serviceUnit, summary: summary);
 }
 
 String serviceActionSummary(String action) {
@@ -70,13 +85,13 @@ String serviceActionSummary(String action) {
   };
 }
 
-class NginxServiceLogsCommand implements Command {
-  const NginxServiceLogsCommand(this.serviceUnit);
+class NginxServiceLogsCommand extends Command {
+  const NginxServiceLogsCommand(this.serviceUnit, {required this.summary});
 
   final String serviceUnit;
 
   @override
-  String get summary => '查看服务日志';
+  final String summary;
 
   @override
   String get text {
@@ -87,6 +102,9 @@ class NginxServiceLogsCommand implements Command {
         'echo; ${EchoCommand('[nginx access.log]').text}; '
         'if [ -f /var/log/nginx/access.log ]; then tail -n 80 /var/log/nginx/access.log; else ${EchoCommand('未找到 /var/log/nginx/access.log').text}; fi';
   }
+
+  @override
+  RemoteCommandResult parse(RemoteCommandResult result) => result;
 }
 
 ServiceSnapshot expectedServiceStatus({

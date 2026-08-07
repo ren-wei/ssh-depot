@@ -7,7 +7,7 @@ bool isSafePackageName(String value) {
 
 Command installPackageCommand(String packageName) {
   return CommandSequence(
-    summary: '安装软件包',
+    summary: '安装 $packageName',
     commands: [
       AptCommand.update(),
       AptCommand.install(packageName),
@@ -16,5 +16,10 @@ Command installPackageCommand(String packageName) {
 }
 
 Command removePackageCommand(String packageName) {
-  return AptCommand.remove(packageName);
+  return CommandSequence(
+    summary: '卸载 $packageName',
+    commands: [
+      AptCommand.remove(packageName),
+    ],
+  );
 }

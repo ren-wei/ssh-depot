@@ -1,11 +1,33 @@
 import 'package:ssh_depot/feature/packages/commands/command.dart';
+import 'package:ssh_depot/feature/classes/remote_command_result.dart';
 import 'package:ssh_depot/feature/utils/shell_quote.dart';
 
-class SystemctlCommand implements Command {
+class SystemctlCommand extends Command {
   const SystemctlCommand._({
     required this.summary,
     required this.text,
+    this.parser,
   });
+
+  factory SystemctlCommand.serviceAction({
+    required String unit,
+    required String action,
+    required String summary,
+  }) {
+    final actionText = switch (action) {
+      'start' => 'start',
+      'stop' => 'stop',
+      'restart' => 'restart',
+      'status' => 'status',
+      _ => throw ArgumentError.value(action, 'action', 'Unsupported service action'),
+    };
+    final pagerArg = actionText == 'status' ? ' --no-pager' : '';
+    return SystemctlCommand._(
+      summary: summary,
+      text: 'systemctl $actionText ${shellQuote(unit)}$pagerArg',
+      parser: (result) => result,
+    );
+  }
 
   factory SystemctlCommand.start(String unit) {
     return SystemctlCommand._(summary: '启动服务', text: 'systemctl start ${shellQuote(unit)}');
@@ -54,4 +76,9 @@ class SystemctlCommand implements Command {
 
   @override
   final String text;
+
+  final Object? Function(RemoteCommandResult result)? parser;
+
+  @override
+  Object? parse(RemoteCommandResult result) => parser?.call(result);
 }

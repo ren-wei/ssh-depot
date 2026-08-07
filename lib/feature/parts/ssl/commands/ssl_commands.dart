@@ -1,3 +1,4 @@
+import 'package:ssh_depot/feature/classes/remote_command_result.dart';
 import 'package:ssh_depot/feature/packages/commands/command.dart';
 import 'package:ssh_depot/feature/packages/commands/echo_command.dart';
 import 'package:ssh_depot/feature/packages/commands/nginx_command.dart';
@@ -49,13 +50,13 @@ Command deleteCertificateCommand(String certName) {
   return DeleteCertificateCommand(certName);
 }
 
-class CertificateDetailsCommand implements Command {
+class CertificateDetailsCommand extends Command {
   const CertificateDetailsCommand(this.certName);
 
   final String certName;
 
   @override
-  String get summary => '查看证书详情';
+  String get summary => '查看证书 $certName';
 
   @override
   String get text {
@@ -63,9 +64,12 @@ class CertificateDetailsCommand implements Command {
         'if [ ! -f "\$fullchain" ]; then ${EchoCommand('未找到证书: \$fullchain').text}; exit 1; fi; '
         'openssl x509 -in "\$fullchain" -noout -subject -issuer -dates -serial -ext subjectAltName';
   }
+
+  @override
+  RemoteCommandResult parse(RemoteCommandResult result) => result;
 }
 
-class CertificateEnvironmentCommand implements Command {
+class CertificateEnvironmentCommand extends Command {
   const CertificateEnvironmentCommand();
 
   @override
@@ -80,9 +84,12 @@ class CertificateEnvironmentCommand implements Command {
         'echo; ${EchoCommand('[nginx status]').text}; systemctl is-active nginx 2>/dev/null || true; '
         'echo; ${EchoCommand('[listen 80/443]').text}; ss -lntp 2>/dev/null | grep -E ":(80|443)[[:space:]]" || true';
   }
+
+  @override
+  RemoteCommandResult parse(RemoteCommandResult result) => result;
 }
 
-class RequestCertificateCommand implements Command {
+class RequestCertificateCommand extends Command {
   const RequestCertificateCommand({
     required this.domains,
     required this.email,
@@ -96,7 +103,7 @@ class RequestCertificateCommand implements Command {
   final String webroot;
 
   @override
-  String get summary => '申请并配置 HTTPS';
+  String get summary => '申请证书 ${domains.first}';
 
   @override
   String get text {
@@ -106,9 +113,12 @@ class RequestCertificateCommand implements Command {
             '--non-interactive --agree-tos -m ${shellQuote(email.trim())}'
         : 'certbot --nginx $domainArgs --non-interactive --agree-tos -m ${shellQuote(email.trim())}';
   }
+
+  @override
+  RemoteCommandResult parse(RemoteCommandResult result) => result;
 }
 
-class RenewCertificateCommand implements Command {
+class RenewCertificateCommand extends Command {
   const RenewCertificateCommand(this.certName, {this.dryRun = false});
 
   final String certName;
@@ -119,9 +129,12 @@ class RenewCertificateCommand implements Command {
 
   @override
   String get text => 'certbot renew --cert-name ${shellQuote(certName)}${dryRun ? ' --dry-run' : ''}';
+
+  @override
+  RemoteCommandResult parse(RemoteCommandResult result) => result;
 }
 
-class UpdateCertificateDomainsCommand implements Command {
+class UpdateCertificateDomainsCommand extends Command {
   const UpdateCertificateDomainsCommand({
     required this.certName,
     required this.domains,
@@ -135,7 +148,7 @@ class UpdateCertificateDomainsCommand implements Command {
   final String webroot;
 
   @override
-  String get summary => '更新证书域名';
+  String get summary => '更新证书域名 $certName';
 
   @override
   String get text {
@@ -145,16 +158,22 @@ class UpdateCertificateDomainsCommand implements Command {
             '$domainArgs --non-interactive'
         : 'certbot --nginx --cert-name ${shellQuote(certName)} $domainArgs --non-interactive';
   }
+
+  @override
+  RemoteCommandResult parse(RemoteCommandResult result) => result;
 }
 
-class DeleteCertificateCommand implements Command {
+class DeleteCertificateCommand extends Command {
   const DeleteCertificateCommand(this.certName);
 
   final String certName;
 
   @override
-  String get summary => '删除证书';
+  String get summary => '删除证书 $certName';
 
   @override
   String get text => 'certbot delete --cert-name ${shellQuote(certName)} --non-interactive';
+
+  @override
+  RemoteCommandResult parse(RemoteCommandResult result) => result;
 }

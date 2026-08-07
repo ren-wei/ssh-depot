@@ -1,7 +1,7 @@
 import 'package:ssh_depot/feature/packages/commands/command.dart';
 import 'package:ssh_depot/feature/utils/shell_quote.dart';
 
-class LnCommand implements Command {
+class LnCommand extends Command {
   const LnCommand._({
     required this.summary,
     required this.text,

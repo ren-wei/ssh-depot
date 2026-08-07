@@ -47,7 +47,7 @@ nginx.service loaded active running A high performance web server
 
   test('builds service action commands and handles unknown action', () {
     expect(serviceActionCommand('nginx.service', 'start')?.text, "systemctl start 'nginx.service'");
-    expect(serviceActionCommand('nginx.service', 'stop')?.summary, '停止服务');
+    expect(serviceActionCommand('nginx.service', 'stop')?.summary, 'nginx 停止服务');
     expect(serviceActionCommand('nginx.service', 'unknown'), isNull);
     expect(serviceActionSummary('unknown'), '服务操作');
   });

@@ -1,7 +1,7 @@
 import 'package:ssh_depot/feature/packages/commands/command.dart';
 import 'package:ssh_depot/feature/utils/shell_quote.dart';
 
-class AptCommand implements Command {
+class AptCommand extends Command {
   const AptCommand._({
     required this.summary,
     required this.text,

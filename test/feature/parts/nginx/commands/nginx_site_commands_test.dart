@@ -22,7 +22,7 @@ void main() {
   test('builds read config command resolving enabled symlink first', () {
     final command = readNginxSiteConfigCommand('example.com');
 
-    expect(command.summary, '读取网站配置');
+    expect(command.summary, '读取网站配置 example.com');
     expect(command.text, startsWith("enabled='/etc/nginx/sites-enabled/example.com'"));
     expect(command.text, endsWith('cat "\$target"'));
   });

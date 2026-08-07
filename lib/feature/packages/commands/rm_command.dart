@@ -1,7 +1,7 @@
 import 'package:ssh_depot/feature/packages/commands/command.dart';
 import 'package:ssh_depot/feature/utils/shell_quote.dart';
 
-class RmCommand implements Command {
+class RmCommand extends Command {
   const RmCommand._({
     required this.summary,
     required this.text,
