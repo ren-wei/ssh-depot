@@ -8,7 +8,7 @@ import 'package:ssh_depot/feature/packages/local_config/service_preferences_stor
 import 'package:ssh_depot/feature/packages/ssh/ssh_target.dart';
 import 'package:ssh_depot/feature/parts/services/cubits/services_cubit.dart';
 
-import '../../../fake_remote_command_runner.dart';
+import '../../../fake_command_runner.dart';
 
 void main() {
   test('loads watched services per target', () async {
@@ -18,7 +18,7 @@ void main() {
     await store.save('root@one.example.com', const ['nginx.service']);
     await store.save('root@two.example.com', const ['docker.service']);
 
-    final runner = FakeRemoteCommandRunner();
+    final runner = FakeCommandRunner();
     final cubit = ServicesCubit(
       commandRunner: runner,
       currentTarget: () => const SshTarget(host: 'one.example.com'),
@@ -35,7 +35,7 @@ void main() {
     addTearDown(() => tempDir.delete(recursive: true));
     final store = ServicePreferencesStore(paths: ConfigPaths(homeDirectory: tempDir.path));
     await store.save('root@one.example.com', const ['nginx.service', 'docker.service']);
-    final runner = FakeRemoteCommandRunner()
+    final runner = FakeCommandRunner()
       ..responses['获取 nginx 状态'] = const RemoteCommandResult(
         exitCode: 0,
         output: 'service=nginx.service;status=active;enabled=enabled\n',
@@ -59,7 +59,7 @@ void main() {
   });
 
   test('stop action refreshes status and logs', () async {
-    final runner = FakeRemoteCommandRunner()
+    final runner = FakeCommandRunner()
       ..responses['docker stop'] = const RemoteCommandResult(exitCode: 0, output: '')
       ..responses['获取 docker 状态'] = const RemoteCommandResult(
         exitCode: 0,

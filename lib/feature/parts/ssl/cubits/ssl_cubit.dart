@@ -1,16 +1,16 @@
 import 'package:flutter/foundation.dart';
 import 'package:ssh_depot/feature/classes/nginx_site.dart';
 import 'package:ssh_depot/feature/classes/remote_command_result.dart';
-import 'package:ssh_depot/feature/packages/command_runner/remote_command_runner.dart';
+import 'package:ssh_depot/feature/packages/command_runner/command_runner.dart';
 import 'package:ssh_depot/feature/packages/certificates/certificate_utils.dart';
 import 'package:ssh_depot/feature/packages/commands/command.dart';
 import 'package:ssh_depot/feature/parts/ssl/commands/ssl_commands.dart';
 import 'package:ssh_depot/feature/parts/ssl/parsers/ssl_parsers.dart';
 
 class SslCubit extends ChangeNotifier {
-  SslCubit({required RemoteCommandRunner commandRunner}) : _commandRunner = commandRunner;
+  SslCubit({required CommandRunner commandRunner}) : _commandRunner = commandRunner;
 
-  final RemoteCommandRunner _commandRunner;
+  final CommandRunner _commandRunner;
 
   List<NginxCertificateInfo> nginxCertificates = const [];
 

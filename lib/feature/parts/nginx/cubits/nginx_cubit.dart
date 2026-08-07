@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:ssh_depot/feature/classes/nginx_site.dart';
 import 'package:ssh_depot/feature/classes/nginx_template_definition.dart';
 import 'package:ssh_depot/feature/classes/remote_command_result.dart';
-import 'package:ssh_depot/feature/packages/command_runner/remote_command_runner.dart';
+import 'package:ssh_depot/feature/packages/command_runner/command_runner.dart';
 import 'package:ssh_depot/feature/packages/commands/command.dart';
 import 'package:ssh_depot/feature/packages/commands/nginx_command.dart';
 import 'package:ssh_depot/feature/packages/commands/systemctl_command.dart';
@@ -19,7 +19,7 @@ import 'package:ssh_depot/feature/utils/home_directory.dart';
 
 class NginxCubit extends ChangeNotifier {
   NginxCubit({
-    required RemoteCommandRunner commandRunner,
+    required CommandRunner commandRunner,
     NginxTemplatesStore? nginxTemplatesStore,
   })  : _commandRunner = commandRunner,
         _nginxTemplatesStore = nginxTemplatesStore ??
@@ -27,7 +27,7 @@ class NginxCubit extends ChangeNotifier {
               paths: ConfigPaths(homeDirectory: resolveHomeDirectory()),
             );
 
-  final RemoteCommandRunner _commandRunner;
+  final CommandRunner _commandRunner;
   final NginxTemplatesStore _nginxTemplatesStore;
 
   List<NginxSite> nginxSites = const [];

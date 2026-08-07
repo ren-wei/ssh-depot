@@ -1,12 +1,12 @@
 import 'package:flutter/foundation.dart';
-import 'package:ssh_depot/feature/packages/command_runner/remote_command_runner.dart';
+import 'package:ssh_depot/feature/packages/command_runner/command_runner.dart';
 import 'package:ssh_depot/feature/packages/commands/command.dart';
 import 'package:ssh_depot/feature/parts/packages/commands/package_commands.dart';
 
 class PackagesCubit extends ChangeNotifier {
-  PackagesCubit({required RemoteCommandRunner commandRunner}) : _commandRunner = commandRunner;
+  PackagesCubit({required CommandRunner commandRunner}) : _commandRunner = commandRunner;
 
-  final RemoteCommandRunner _commandRunner;
+  final CommandRunner _commandRunner;
 
   Future<void> installPackage(String packageName) {
     final name = packageName.trim();

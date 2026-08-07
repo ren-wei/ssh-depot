@@ -5,14 +5,14 @@ import 'package:ssh_depot/feature/classes/remote_command_result.dart';
 import 'package:ssh_depot/feature/cubits/operation_history_cubit.dart';
 import 'package:ssh_depot/feature/cubits/terminal_cubit.dart';
 import 'package:ssh_depot/feature/packages/command_runner/operation_queue.dart';
-import 'package:ssh_depot/feature/packages/command_runner/remote_command_runner.dart';
+import 'package:ssh_depot/feature/packages/command_runner/command_runner.dart';
 import 'package:ssh_depot/feature/packages/commands/command.dart';
 import 'package:ssh_depot/feature/packages/ssh/pty_ssh_session.dart';
 import 'package:ssh_depot/feature/packages/ssh/ssh_command.dart';
 import 'package:ssh_depot/feature/packages/ssh/ssh_executor.dart';
 import 'package:ssh_depot/feature/packages/ssh/ssh_target.dart';
 
-class CommandRunnerCubit extends ChangeNotifier implements RemoteCommandRunner {
+class CommandRunnerCubit extends ChangeNotifier implements CommandRunner {
   CommandRunnerCubit({
     required TerminalCubit terminalCubit,
     required OperationHistoryCubit historyCubit,
@@ -82,29 +82,16 @@ class CommandRunnerCubit extends ChangeNotifier implements RemoteCommandRunner {
   Future<void> runCommand({
     required Command command,
     Duration? timeout,
-  }) {
-    return runRemote(
-      summary: command.summary,
-      command: command.text,
-      timeout: timeout,
-    );
-  }
-
-  @override
-  Future<void> runRemote({
-    required String summary,
-    required String command,
-    Duration? timeout,
   }) async {
     final target = _currentTarget();
     if (target == null) {
       _setStatus('请先连接服务器');
       return;
     }
-    await runOnTarget(
+    await _runOnTarget(
       target: target,
-      summary: summary,
-      command: command,
+      summary: command.summary,
+      command: command.text,
       timeout: timeout,
     );
   }
@@ -112,19 +99,6 @@ class CommandRunnerCubit extends ChangeNotifier implements RemoteCommandRunner {
   @override
   Future<RemoteCommandResult?> runCaptureCommand({
     required Command command,
-    Duration? timeout,
-  }) {
-    return runCaptureRemote(
-      summary: command.summary,
-      command: command.text,
-      timeout: timeout,
-    );
-  }
-
-  @override
-  Future<RemoteCommandResult?> runCaptureRemote({
-    required String summary,
-    required String command,
     Duration? timeout,
   }) async {
     final target = _currentTarget();
@@ -136,8 +110,8 @@ class CommandRunnerCubit extends ChangeNotifier implements RemoteCommandRunner {
     final output = StringBuffer();
     final exitCode = await _runOnTarget(
       target: target,
-      summary: summary,
-      command: command,
+      summary: command.summary,
+      command: command.text,
       timeout: timeout,
       onOutput: (chunk) => output.write(chunk.text),
     );
@@ -150,25 +124,10 @@ class CommandRunnerCubit extends ChangeNotifier implements RemoteCommandRunner {
     required Command command,
     Duration? timeout,
   }) {
-    return runOnTarget(
+    return _runOnTarget(
       target: target,
       summary: command.summary,
       command: command.text,
-      timeout: timeout,
-    );
-  }
-
-  @override
-  Future<int> runOnTarget({
-    required SshTarget target,
-    required String summary,
-    required String command,
-    Duration? timeout,
-  }) {
-    return _runOnTarget(
-      target: target,
-      summary: summary,
-      command: command,
       timeout: timeout,
     );
   }

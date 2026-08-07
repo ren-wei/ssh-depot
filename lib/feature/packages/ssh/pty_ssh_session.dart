@@ -509,7 +509,7 @@ class PtySshSession implements ShellSession {
     return value.endsWith('\n') || value.endsWith('\r');
   }
 
-  static const bashArgumentsForTesting = ['--noprofile', '--norc', '-i'];
+  static const bashArgumentsForTesting = ['-il'];
 }
 
 class MarkerRange {

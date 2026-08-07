@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:ssh_depot/feature/classes/overview_snapshot.dart';
-import 'package:ssh_depot/feature/packages/command_runner/remote_command_runner.dart';
+import 'package:ssh_depot/feature/packages/command_runner/command_runner.dart';
 import 'package:ssh_depot/feature/packages/commands/command.dart';
 import 'package:ssh_depot/feature/packages/local_config/config_paths.dart';
 import 'package:ssh_depot/feature/packages/local_config/service_preferences_store.dart';
@@ -11,7 +11,7 @@ import 'package:ssh_depot/feature/utils/home_directory.dart';
 
 class ServicesCubit extends ChangeNotifier {
   ServicesCubit({
-    required RemoteCommandRunner commandRunner,
+    required CommandRunner commandRunner,
     required SshTarget? Function() currentTarget,
     ServicePreferencesStore? servicePreferencesStore,
   })  : _commandRunner = commandRunner,
@@ -21,7 +21,7 @@ class ServicesCubit extends ChangeNotifier {
               paths: ConfigPaths(homeDirectory: resolveHomeDirectory()),
             );
 
-  final RemoteCommandRunner _commandRunner;
+  final CommandRunner _commandRunner;
   final SshTarget? Function() _currentTarget;
   final ServicePreferencesStore _servicePreferencesStore;
 

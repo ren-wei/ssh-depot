@@ -2,11 +2,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ssh_depot/feature/classes/remote_command_result.dart';
 import 'package:ssh_depot/feature/parts/ssl/cubits/ssl_cubit.dart';
 
-import '../../../fake_remote_command_runner.dart';
+import '../../../fake_command_runner.dart';
 
 void main() {
   test('rejects empty email before requesting certificate', () async {
-    final runner = FakeRemoteCommandRunner();
+    final runner = FakeCommandRunner();
     final cubit = SslCubit(commandRunner: runner);
 
     final result = await cubit.requestCertificate(
@@ -22,7 +22,7 @@ void main() {
   });
 
   test('refreshes certificates from runner output', () async {
-    final runner = FakeRemoteCommandRunner()
+    final runner = FakeCommandRunner()
       ..responses['刷新证书列表'] = const RemoteCommandResult(
         exitCode: 0,
         output:

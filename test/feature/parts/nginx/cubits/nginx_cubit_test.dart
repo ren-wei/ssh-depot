@@ -6,11 +6,11 @@ import 'package:ssh_depot/feature/packages/local_config/config_paths.dart';
 import 'package:ssh_depot/feature/parts/nginx/cubits/nginx_cubit.dart';
 import 'package:ssh_depot/feature/parts/nginx/stores/nginx_templates_store.dart';
 
-import '../../../fake_remote_command_runner.dart';
+import '../../../fake_command_runner.dart';
 
 void main() {
   test('refreshes nginx sites and certificates', () async {
-    final runner = FakeRemoteCommandRunner()
+    final runner = FakeCommandRunner()
       ..responses['刷新网站列表'] = const RemoteCommandResult(
         exitCode: 0,
         output: '''
@@ -35,7 +35,7 @@ example.com|1893456000|CN=R3|/etc/letsencrypt/live/example.com/fullchain.pem|/et
   });
 
   test('rejects invalid site name before saving config', () async {
-    final runner = FakeRemoteCommandRunner();
+    final runner = FakeCommandRunner();
     final cubit = NginxCubit(commandRunner: runner);
 
     final result = await cubit.saveNginxSiteConfig(
@@ -53,7 +53,7 @@ example.com|1893456000|CN=R3|/etc/letsencrypt/live/example.com/fullchain.pem|/et
     addTearDown(() => tempDir.delete(recursive: true));
     final store = NginxTemplatesStore(paths: ConfigPaths(homeDirectory: tempDir.path));
     final cubit = NginxCubit(
-      commandRunner: FakeRemoteCommandRunner(),
+      commandRunner: FakeCommandRunner(),
       nginxTemplatesStore: store,
     );
 

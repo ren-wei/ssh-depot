@@ -1,11 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssh_depot/feature/parts/packages/cubits/packages_cubit.dart';
 
-import '../../../fake_remote_command_runner.dart';
+import '../../../fake_command_runner.dart';
 
 void main() {
   test('rejects invalid package name before running command', () async {
-    final runner = FakeRemoteCommandRunner();
+    final runner = FakeCommandRunner();
     final cubit = PackagesCubit(commandRunner: runner);
 
     await cubit.installPackage('bad package');
@@ -15,7 +15,7 @@ void main() {
   });
 
   test('runs apt install command for valid package', () async {
-    final runner = FakeRemoteCommandRunner();
+    final runner = FakeCommandRunner();
     final cubit = PackagesCubit(commandRunner: runner);
 
     await cubit.installPackage('nginx');
